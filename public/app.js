@@ -558,7 +558,7 @@
             6. ถ้าไม่มีใครกดเริ่มภายใน 3 นาที ระบบจะเตือนซ้ำทุก 2 นาที (สูงสุด 6 ครั้ง)</div>
         </div>
         <div class="section-title">ติดตั้งเป็นแอป</div>
-        <div class="card small muted"><b>Android (แนะนำ):</b> <a href="https://github.com/bossza553/print-flow/releases/latest/download/print-flow.apk">ดาวน์โหลดแอป Print Flow (.apk)</a> แล้วเปิดไฟล์เพื่อติดตั้ง (ถ้าถามให้อนุญาตติดตั้งจากแหล่งนี้)<br><b>Android (ไม่ติดตั้ง APK):</b> เปิดใน Chrome → เมนู ⋮ → <b>เพิ่มลงในหน้าจอหลัก</b> / <b>ติดตั้งแอป</b><br><b>iPhone:</b> เปิดใน Safari → ปุ่ม <b>แชร์</b> → <b>เพิ่มลงในหน้าจอโฮม</b><br>จากนั้นเปิดจากไอคอนบนหน้าจอหลักทุกครั้ง</div>
+        <div class="card small muted"><b>Android (แนะนำ):</b> <a href="./print-flow.apk">ดาวน์โหลดแอป Print Flow (.apk)</a> แล้วเปิดไฟล์เพื่อติดตั้ง (ถ้าถามให้อนุญาตติดตั้งจากแหล่งนี้)<br><b>Android (ไม่ติดตั้ง APK):</b> เปิดใน Chrome → เมนู ⋮ → <b>เพิ่มลงในหน้าจอหลัก</b> / <b>ติดตั้งแอป</b><br><b>iPhone:</b> เปิดใน Safari → ปุ่ม <b>แชร์</b> → <b>เพิ่มลงในหน้าจอโฮม</b><br>จากนั้นเปิดจากไอคอนบนหน้าจอหลักทุกครั้ง</div>
         <div style="height:16px"></div>
         <button class="btn danger" id="logout">ออกจากระบบ</button>
         <div class="center muted small">Print Flow v0.1</div>

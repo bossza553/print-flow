@@ -170,7 +170,7 @@ data/              – ฐานข้อมูล (อย่าลืม backup
 โฟลเดอร์ `android/` คือตัวห่อแบบ Trusted Web Activity (Bubblewrap) ที่เปิดเว็บ https://bossza553.github.io/print-flow/ แบบเต็มจอเหมือนแอปจริง
 การแจ้งเตือนใช้ระบบเดียวกับเว็บ (Web Push ผ่าน Chrome)
 
-- ดาวน์โหลดเวอร์ชันล่าสุด: https://github.com/bossza553/print-flow/releases/latest/download/print-flow.apk
+- ดาวน์โหลด: https://bossza553.github.io/print-flow/print-flow.apk (สำเนาเดียวกันอยู่ใน GitHub Releases)
 - ไฟล์ `.well-known/assetlinks.json` บน https://bossza553.github.io (repo `bossza553.github.io`) คือสิ่งที่บอก Android ว่าแอปนี้เป็นเจ้าของเว็บ ถ้าไม่มี แอปจะเปิดแบบมีแถบ URL
 - **กุญแจเซ็นแอป** `android/android.keystore` + `android/keystore.properties` ไม่ได้อยู่ใน git — สำรองไว้ให้ดี ถ้าหายจะออกอัปเดตแอปเดิมไม่ได้
 
