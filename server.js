@@ -5,6 +5,7 @@ import { fileURLToPath } from 'node:url';
 import { db, newToken } from './lib/db.js';
 import { STAGES, ROLES, COLORS, MACHINES, stageByKey, nextStage, machineColor, canWork } from './lib/workflow.js';
 import * as push from './lib/push.js';
+import { renderQrCards } from './lib/qrcards.js';
 
 const __dirname = path.dirname(fileURLToPath(import.meta.url));
 const PUBLIC_DIR = path.join(__dirname, 'public');
@@ -169,6 +170,15 @@ route('PUT', '/api/users/:id', async (req, p) => {
     throw e;
   }
   return { ok: true };
+});
+
+// Printable login cards (QR + PIN) for all active users. Admin only.
+// The client passes its own origin so the QR points at whatever link the admin is using.
+route('GET', '/api/qr-cards', async (req) => {
+  requireAdmin(req);
+  const url = new URL(req.url, 'http://x').searchParams.get('url') || '';
+  if (!/^https?:\/\/[^\s"'<>]+$/.test(url)) throw new HttpError(400, 'invalid url');
+  return { __html: await renderQrCards(url) };
 });
 
 route('DELETE', '/api/users/:id', (req, p) => {
@@ -398,6 +408,10 @@ const server = http.createServer(async (req, res) => {
         if (!m) continue;
         const params = Object.fromEntries(r.keys.map((k, i) => [k, m[i + 1]]));
         const data = await r.handler(req, params);
+        if (data && typeof data.__html === 'string') {
+          res.writeHead(200, { 'Content-Type': 'text/html; charset=utf-8', 'Cache-Control': 'no-store' });
+          return res.end(data.__html);
+        }
         return json(res, 200, data);
       }
       return json(res, 404, { error: 'not found' });

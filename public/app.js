@@ -389,7 +389,10 @@
       const groups = {};
       for (const u of d.users) (groups[u.role] ||= []).push(u);
       return shell('พนักงาน', `${d.users.filter(u => u.active).length} คน`, `
-        <button class="btn" id="addUser">＋ เพิ่มพนักงาน</button>
+        <div class="actions" style="margin-top:0">
+          <button class="btn" id="addUser">＋ เพิ่มพนักงาน</button>
+          <a class="btn secondary" href="#qrcards" style="text-align:center;text-decoration:none">🪪 บัตร QR</a>
+        </div>
         ${Object.keys(S.meta.roles).filter(r => groups[r]).map(r => `
           <div class="section-title">${esc(roleName(r))}</div>
           ${groups[r].map(u => `
@@ -441,6 +444,32 @@
       });
     });
   }
+
+  // ---- QR login cards (admin)
+  views.qrcards = {
+    async load() {
+      const res = await fetch('/api/qr-cards?url=' + encodeURIComponent(location.origin), { headers: { Authorization: 'Bearer ' + S.token } });
+      if (!res.ok) { let e = {}; try { e = await res.json(); } catch { /* empty */ } throw new Error(e.error || 'โหลดบัตรไม่ได้'); }
+      return { html: await res.text() };
+    },
+    render(d) {
+      return shell('บัตร QR เข้าใช้งาน', 'สแกนเพื่อเปิดแอป · PIN อยู่บนบัตร', `
+        <div class="actions" style="margin:0 0 10px">
+          <a class="btn secondary" href="#users" style="text-align:center;text-decoration:none">‹ กลับ</a>
+          <button class="btn" id="printCards">🖨️ พิมพ์ / บันทึก PDF</button>
+        </div>
+        <iframe id="cardsFrame" style="width:100%;height:calc(100vh - 210px);border:0;border-radius:var(--radius);background:#fff"></iframe>
+      `);
+    },
+    mount(el, d) {
+      const frame = el.querySelector('#cardsFrame');
+      frame.srcdoc = d.html;
+      el.querySelector('#printCards').onclick = () => {
+        try { frame.contentWindow.focus(); frame.contentWindow.print(); }
+        catch { toast('พิมพ์ไม่ได้ในเบราว์เซอร์นี้', 'error'); }
+      };
+    },
+  };
 
   // ---- settings
   views.settings = {
@@ -607,7 +636,7 @@
     const [name, arg] = hash.split('/');
     if (name === 'job' && arg) { openJob(arg); return; }
     let view = views[name] || views[S.user.role === 'admin' ? 'board' : 'queue'];
-    if (S.user.role !== 'admin' && ['books', 'basket', 'users'].includes(name)) view = views.queue;
+    if (S.user.role !== 'admin' && ['books', 'basket', 'users', 'qrcards'].includes(name)) view = views.queue;
     const seq = ++renderSeq;
     S.view = view;
     try {
