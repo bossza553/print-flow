@@ -63,6 +63,12 @@ class MainActivity : AppCompatActivity() {
         fetchFcmToken()
     }
 
+    /** Opening the app means someone is paying attention: silence the alarm. */
+    override fun onResume() {
+        super.onResume()
+        AlarmService.stop(this)
+    }
+
     override fun onNewIntent(intent: Intent) {
         super.onNewIntent(intent)
         intent.getStringExtra("url")?.let { web.loadUrl(BuildConfig.WEB_URL + it) }

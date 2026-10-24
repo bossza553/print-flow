@@ -89,7 +89,9 @@
     ov.id = 'alarmOverlay';
     ov.innerHTML = `<div class="alarm-box"><div class="alarm-ic">🚨</div><div class="alarm-title">${esc(title || 'งานใหม่!')}</div><div class="alarm-body">${esc(body || '')}</div><button class="btn big" id="alarmOk">รับทราบ</button></div>`;
     document.body.appendChild(ov);
-    ov.querySelector('#alarmOk').onclick = () => { stopAlarm(); location.hash = S.user?.role === 'admin' ? '#board' : '#queue'; render(true); };
+    const ack = () => { stopAlarm(); location.hash = S.user?.role === 'admin' ? '#board' : '#queue'; render(true); };
+    ov.querySelector('#alarmOk').onclick = ack;
+    ov.onclick = ack; // any tap counts: the goal is attention, not noise
     // keeps going until someone taps รับทราบ (hard stop after 10 minutes so an empty room isn't a siren all night)
     alarmCap = setTimeout(stopAlarm, 10 * 60 * 1000);
   }

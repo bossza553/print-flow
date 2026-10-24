@@ -22,8 +22,8 @@ android {
         applicationId 'io.github.bossza553.printflow'
         minSdk 24
         targetSdk 35
-        versionCode 2
-        versionName '2.0'
+        versionCode 3
+        versionName '2.1'
         buildConfigField 'String', 'WEB_URL', '"https://bossza553.github.io/print-flow/"'
         buildConfigField 'String', 'API_BASE', '"https://npobptbcnxsonbevfgrr.supabase.co/functions/v1"'
         buildConfigField 'String', 'FB_PROJECT_ID', "\"${fbVal('projectId')}\""
