@@ -128,8 +128,8 @@ async function getPush() {
 }
 // Alarm notifications are sent REPEAT times a few seconds apart with the same tag:
 // Android replays the sound/vibration on each one (renotify) without stacking notifications.
-const ALARM_REPEAT = 3;
-const ALARM_GAP_MS = 4000;
+const ALARM_REPEAT = 4;
+const ALARM_GAP_MS = 15000;
 const sleep = (ms: number) => new Promise(r => setTimeout(r, ms));
 async function notifyUsers(userIds: number[], payload: Record<string, unknown>) {
   const ids = [...new Set(userIds)].filter(Boolean);

@@ -67,7 +67,13 @@
     if (ctx) {
       // two-tone siren at full gain, repeats until stopped or 20 s
       const master = ctx.createGain(); master.gain.value = 1; master.connect(ctx.destination);
-      const tone = (f, t, d) => { const o = ctx.createOscillator(); const g = ctx.createGain(); o.type = 'square'; o.frequency.value = f; g.gain.setValueAtTime(0.9, t); g.gain.setValueAtTime(0, t + d); o.connect(g); g.connect(master); o.start(t); o.stop(t + d + 0.02); };
+      const tone = (f, t, d) => {
+        for (const [type, mult, gain] of [['square', 1, 0.9], ['sawtooth', 0.5, 0.6]]) {
+          const o = ctx.createOscillator(); const g = ctx.createGain(); o.type = type; o.frequency.value = f * mult;
+          g.gain.setValueAtTime(gain, t); g.gain.setValueAtTime(0, t + d); o.connect(g); g.connect(master); o.start(t); o.stop(t + d + 0.02);
+        }
+      };
+      // continuous two-tone siren: 4 x (high/low) per 2 s, no gaps
       const burst = () => { const t = ctx.currentTime; for (let i = 0; i < 4; i++) { tone(1200, t + i * 0.5, 0.25); tone(800, t + i * 0.5 + 0.25, 0.25); } };
       burst(); timer = setInterval(burst, 2000);
       alarm = { stop() { clearInterval(timer); clearInterval(vib); try { master.disconnect(); } catch { /* ignore */ } } };
@@ -80,9 +86,12 @@
     ov.innerHTML = `<div class="alarm-box"><div class="alarm-ic">🚨</div><div class="alarm-title">${esc(title || 'งานใหม่!')}</div><div class="alarm-body">${esc(body || '')}</div><button class="btn big" id="alarmOk">รับทราบ</button></div>`;
     document.body.appendChild(ov);
     ov.querySelector('#alarmOk').onclick = () => { stopAlarm(); location.hash = S.user?.role === 'admin' ? '#board' : '#queue'; render(true); };
-    setTimeout(stopAlarm, 20000);
+    // keeps going until someone taps รับทราบ (hard stop after 10 minutes so an empty room isn't a siren all night)
+    alarmCap = setTimeout(stopAlarm, 10 * 60 * 1000);
   }
+  let alarmCap = null;
   function stopAlarm() {
+    clearTimeout(alarmCap);
     alarm?.stop(); alarm = null;
     if (navigator.vibrate) navigator.vibrate(0);
     document.getElementById('alarmOverlay')?.remove();
@@ -599,8 +608,15 @@
         <div class="card">${notif}</div>
         <div class="section-title">เสียงเตือน</div>
         <div class="card">
-          <div class="small">เมื่อมีงานใหม่ขณะเปิดแอปอยู่ จะมีเสียงไซเรน + สั่นจนกว่าจะกดรับทราบ</div>
+          <div class="row between">
+            <div><div class="title" style="font-size:16px">🏭 โหมดสถานี</div>
+              <div class="small muted">วางเครื่องไว้ที่แท่น: หน้าจอไม่ดับ รีเฟรชทุก 3 วิ และไซเรนดังจนกว่าจะกดรับทราบ</div></div>
+            <label class="switch"><input type="checkbox" id="stationToggle" ${stationOn() ? 'checked' : ''}><span></span></label>
+          </div>
+          <div class="small" style="margin-top:10px">เมื่อมีงานใหม่ขณะเปิดแอปอยู่ จะมีเสียงไซเรน + สั่น + จอแดงกระพริบ จนกว่าจะกด <b>รับทราบ</b></div>
           <div class="actions"><button class="btn secondary sm" id="testAlarm">🚨 ทดสอบเสียงไซเรน</button></div>
+          <div class="small muted" style="margin-top:10px">⚠️ ถ้า<b>ปิดแอป</b>อยู่ ระบบจะส่งแจ้งเตือน 4 ครั้ง ห่างกัน 15 วินาที
+            — Android เล่นเสียงแจ้งเตือนได้แค่ครั้งละ 1 รอบ ดังนั้นให้ตั้ง<b>เสียงแจ้งเตือนของแอปเป็นเสียงเรียกเข้าแบบยาว</b> จะได้ดังต่อเนื่องเกือบ 1-2 นาที</div>
           <div class="small muted" style="margin-top:10px"><b>ทำให้แจ้งเตือนดังเหมือนนาฬิกาปลุก (Android):</b><br>
             1. ติดตั้งแอปลงหน้าจอหลักก่อน<br>
             2. กดค้างที่ไอคอน Print Flow → <b>ข้อมูลแอป</b> → <b>การแจ้งเตือน</b><br>
@@ -620,7 +636,8 @@
       el.querySelector('#enablePush')?.addEventListener('click', enablePush);
       el.querySelector('#disablePush')?.addEventListener('click', disablePush);
       el.querySelector('#testPush')?.addEventListener('click', async () => { await api('POST', '/api/push/test'); toast('ส่งแล้ว รอสักครู่…'); });
-      el.querySelector('#testAlarm')?.addEventListener('click', () => startAlarm('ทดสอบเสียงไซเรน', 'แบบนี้คือเสียงตอนมีงานใหม่'));
+      el.querySelector('#testAlarm')?.addEventListener('click', () => startAlarm('ทดสอบเสียงไซเรน', 'แบบนี้คือเสียงตอนมีงานใหม่ กดรับทราบเพื่อหยุด'));
+      el.querySelector('#stationToggle')?.addEventListener('change', async (e) => { await setStation(e.target.checked); toast(e.target.checked ? 'เปิดโหมดสถานีแล้ว หน้าจอจะไม่ดับขณะเปิดแอป' : 'ปิดโหมดสถานีแล้ว'); });
       el.querySelector('#logout').onclick = async () => {
         if (!(await confirmSheet('ออกจากระบบ', 'เครื่องนี้จะไม่ได้รับการแจ้งเตือนจนกว่าจะเข้าสู่ระบบใหม่', 'ออกจากระบบ', 'danger'))) return;
         try { await api('POST', '/api/logout', { endpoint: S.pushSub?.endpoint }); } catch { /* ignore */ }
@@ -766,15 +783,34 @@
     }
   }
 
+  // ---------------------------------------------------------- station mode
+  // For a phone/tablet left on a stand at the machine: screen stays on, queue refreshes every 3 s,
+  // and the siren runs until acknowledged.
+  const stationOn = () => localStorage.getItem('pf_station') === '1';
+  let wakeLock = null;
+  async function holdWakeLock() {
+    try {
+      if (!stationOn() || !('wakeLock' in navigator) || document.visibilityState !== 'visible') return;
+      if (wakeLock && !wakeLock.released) return;
+      wakeLock = await navigator.wakeLock.request('screen');
+    } catch { /* not allowed on this device */ }
+  }
+  async function releaseWakeLock() { try { await wakeLock?.release(); } catch { /* ignore */ } wakeLock = null; }
+  async function setStation(on) {
+    localStorage.setItem('pf_station', on ? '1' : '0');
+    if (on) { getAudio(); await holdWakeLock(); } else await releaseWakeLock();
+    startPolling();
+  }
+
   function startPolling() {
     clearInterval(S.pollTimer);
     S.pollTimer = setInterval(() => {
       if (document.visibilityState !== 'visible') return;
       if ($sheet.children.length) return;           // don't refresh under an open sheet
       if (['queue', 'board'].includes(currentHash().split('/')[0])) render();
-    }, 8000);
-    document.addEventListener('visibilitychange', () => { if (document.visibilityState === 'visible') render(); });
+    }, stationOn() ? 3000 : 8000);
   }
+  document.addEventListener('visibilitychange', () => { if (document.visibilityState === 'visible') { holdWakeLock(); render(); } });
 
   function logoutLocal() {
     S.token = null; S.user = null; S.knownQueueIds = null;
@@ -789,7 +825,7 @@
     if (S.token && !S.user) {
       try { S.user = (await api('GET', '/api/me')).user; } catch { S.user = null; }
     }
-    if (S.user) { syncPush(); startPolling(); }
+    if (S.user) { syncPush(); startPolling(); holdWakeLock(); }
     render();
   }
 
