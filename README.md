@@ -185,3 +185,19 @@ npx bubblewrap build --skipPwaValidation
 
 ได้ไฟล์ `app-release-signed.apk` แล้วอัปโหลดเป็น GitHub Release ชื่อไฟล์ `print-flow.apk`
 (เพิ่ม `appVersionCode` ใน `twa-manifest.json` ทุกครั้งที่ออกเวอร์ชันใหม่)
+
+## แอป Android แบบ "นาฬิกาปลุก" (android-app/)
+
+เวอร์ชัน 2 ของแอป Android เป็นแอป native จริง (Kotlin): เปิดหน้าเว็บเดิมข้างใน แต่รับข้อความผ่าน **Firebase Cloud Messaging**
+แล้วเล่น **เสียงปลุกวนซ้ำ + สั่น + หน้าจอแดงเต็มจอ แม้ล็อกหน้าจอ** จนกว่าจะกดรับทราบ (หยุดเองใน 5 นาที)
+ติดตั้งทับเวอร์ชัน 1 ได้เลย (แพ็กเกจและกุญแจเซ็นเดียวกัน)
+
+ต้องมี Firebase project ของตัวเอง (ฟรี):
+1. https://console.firebase.google.com → Add project
+2. Project settings → Your apps → Add app → Android → package `io.github.bossza553.printflow` → ดาวน์โหลด `google-services.json`
+3. Project settings → Service accounts → **Generate new private key** → ได้ไฟล์ JSON (ความลับ ห้ามใส่ git)
+4. จาก `google-services.json` กรอก `android-app/firebase.properties` (ดู `firebase.properties.example`)
+5. เก็บ service-account JSON ลงฐานข้อมูล: ตาราง `pf_settings` key `fcm_service_account` (ทำผ่าน Supabase SQL editor หรือให้ Claude ทำ)
+6. สร้าง APK: `cd android-app && ./gradlew assembleRelease` → `app/build/outputs/apk/release/app-release.apk`
+
+ถ้ายังไม่ตั้งค่า Firebase แอปยังใช้งานได้ปกติ แค่ไม่มีเสียงปลุกตอนปิดแอป
