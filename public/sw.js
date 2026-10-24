@@ -1,6 +1,6 @@
 // Service worker: receives push notifications and caches the app shell.
 // All paths are relative so the app works at a sub-path (e.g. GitHub Pages).
-const CACHE = 'print-flow-v3';
+const CACHE = 'print-flow-v4';
 const SHELL = ['./', './index.html', './config.js', './app.js', './styles.css', './manifest.webmanifest', './icon-192.png', './icon-512.png'];
 
 self.addEventListener('install', (event) => {
@@ -28,18 +28,26 @@ self.addEventListener('fetch', (event) => {
 });
 
 self.addEventListener('push', (event) => {
-  let data = { title: 'Print Flow', body: '', url: '' };
+  let data = { title: 'Print Flow', body: '', url: '', alarm: false, tag: '' };
   try { data = { ...data, ...event.data.json() }; } catch { if (event.data) data.body = event.data.text(); }
-  event.waitUntil(
-    self.registration.showNotification(data.title, {
-      body: data.body,
-      icon: './icon-192.png',
-      badge: './icon-192.png',
-      vibrate: [200, 100, 200],
-      tag: 'print-flow-' + (data.ts || Date.now()),
-      data: { url: data.url || '' },
-    })
-  );
+  const show = self.registration.showNotification(data.title, {
+    body: data.body,
+    icon: './icon-192.png',
+    badge: './icon-192.png',
+    // long, insistent vibration (Android honours this pattern)
+    vibrate: data.alarm ? [600, 200, 600, 200, 600, 200, 600, 200, 600] : [200, 100, 200],
+    // stays on screen until tapped or dismissed
+    requireInteraction: !!data.alarm,
+    // same tag replaces the previous one but buzzes again
+    tag: data.tag || ('print-flow-' + (data.ts || Date.now())),
+    renotify: true,
+    silent: false,
+    data: { url: data.url || '' },
+  });
+  // if the app is open anywhere, tell it to sound the siren
+  const wake = self.clients.matchAll({ type: 'window', includeUncontrolled: true })
+    .then(list => list.forEach(c => c.postMessage({ type: 'push', title: data.title, body: data.body, alarm: !!data.alarm })));
+  event.waitUntil(Promise.all([show, wake]));
 });
 
 self.addEventListener('notificationclick', (event) => {

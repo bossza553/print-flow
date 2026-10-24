@@ -46,15 +46,57 @@
     setTimeout(() => el.remove(), 2800);
   }
 
-  function beep() {
+  // ---------------------------------------------------------- alarm siren
+  // One AudioContext, unlocked on the first tap so it can play later even if
+  // the alarm is triggered by a push message while the screen is elsewhere.
+  let audioCtx = null;
+  function getAudio() {
     try {
-      const ctx = new (window.AudioContext || window.webkitAudioContext)();
-      const o = ctx.createOscillator(); const g = ctx.createGain();
-      o.connect(g); g.connect(ctx.destination);
-      o.frequency.value = 880; g.gain.value = 0.15;
-      o.start(); o.stop(ctx.currentTime + 0.25);
-      if (navigator.vibrate) navigator.vibrate([150, 80, 150]);
-    } catch { /* ignore */ }
+      audioCtx ||= new (window.AudioContext || window.webkitAudioContext)();
+      if (audioCtx.state === 'suspended') audioCtx.resume();
+    } catch { /* unsupported */ }
+    return audioCtx;
+  }
+  ['touchstart', 'pointerdown', 'keydown'].forEach(ev => document.addEventListener(ev, getAudio, { once: true, passive: true }));
+
+  let alarm = null; // { stop() }
+  function startAlarm(title, body) {
+    stopAlarm();
+    const ctx = getAudio();
+    let timer = null, vib = null;
+    if (ctx) {
+      // two-tone siren at full gain, repeats until stopped or 20 s
+      const master = ctx.createGain(); master.gain.value = 1; master.connect(ctx.destination);
+      const tone = (f, t, d) => { const o = ctx.createOscillator(); const g = ctx.createGain(); o.type = 'square'; o.frequency.value = f; g.gain.setValueAtTime(0.9, t); g.gain.setValueAtTime(0, t + d); o.connect(g); g.connect(master); o.start(t); o.stop(t + d + 0.02); };
+      const burst = () => { const t = ctx.currentTime; for (let i = 0; i < 4; i++) { tone(1200, t + i * 0.5, 0.25); tone(800, t + i * 0.5 + 0.25, 0.25); } };
+      burst(); timer = setInterval(burst, 2000);
+      alarm = { stop() { clearInterval(timer); clearInterval(vib); try { master.disconnect(); } catch { /* ignore */ } } };
+    } else {
+      alarm = { stop() { clearInterval(vib); } };
+    }
+    if (navigator.vibrate) { navigator.vibrate([800, 200, 800, 200, 800]); vib = setInterval(() => navigator.vibrate([800, 200, 800, 200, 800]), 3000); }
+    const ov = document.createElement('div');
+    ov.id = 'alarmOverlay';
+    ov.innerHTML = `<div class="alarm-box"><div class="alarm-ic">🚨</div><div class="alarm-title">${esc(title || 'งานใหม่!')}</div><div class="alarm-body">${esc(body || '')}</div><button class="btn big" id="alarmOk">รับทราบ</button></div>`;
+    document.body.appendChild(ov);
+    ov.querySelector('#alarmOk').onclick = () => { stopAlarm(); location.hash = S.user?.role === 'admin' ? '#board' : '#queue'; render(true); };
+    setTimeout(stopAlarm, 20000);
+  }
+  function stopAlarm() {
+    alarm?.stop(); alarm = null;
+    if (navigator.vibrate) navigator.vibrate(0);
+    document.getElementById('alarmOverlay')?.remove();
+  }
+  function beep() { startAlarm('งานใหม่มาถึงแล้ว!', 'แตะรับทราบ แล้วกดเริ่มทำงานในคิว'); }
+
+  // the service worker forwards every push to open pages so the siren sounds immediately
+  if ('serviceWorker' in navigator) {
+    navigator.serviceWorker.addEventListener('message', (e) => {
+      if (e.data?.type === 'push' && S.user) {
+        if (e.data.alarm && S.user.role !== 'admin') startAlarm(e.data.title, e.data.body); else toast(e.data.title, 'success');
+        if (['queue', 'board'].includes(currentHash().split('/')[0])) render();
+      }
+    });
   }
 
   async function api(method, path, body) {
@@ -503,6 +545,18 @@
         </div>
         <div class="section-title">การแจ้งเตือน</div>
         <div class="card">${notif}</div>
+        <div class="section-title">เสียงเตือน</div>
+        <div class="card">
+          <div class="small">เมื่อมีงานใหม่ขณะเปิดแอปอยู่ จะมีเสียงไซเรน + สั่นจนกว่าจะกดรับทราบ</div>
+          <div class="actions"><button class="btn secondary sm" id="testAlarm">🚨 ทดสอบเสียงไซเรน</button></div>
+          <div class="small muted" style="margin-top:10px"><b>ทำให้แจ้งเตือนดังเหมือนนาฬิกาปลุก (Android):</b><br>
+            1. ติดตั้งแอปลงหน้าจอหลักก่อน<br>
+            2. กดค้างที่ไอคอน Print Flow → <b>ข้อมูลแอป</b> → <b>การแจ้งเตือน</b><br>
+            3. เลือกหมวดการแจ้งเตือน → ระดับ <b>เร่งด่วน / แสดงเด้งขึ้นและมีเสียง</b><br>
+            4. <b>เสียง</b> → เลือกเสียงนาฬิกาปลุกหรือเสียงเรียกเข้าที่ดังที่สุด<br>
+            5. ปิด <b>ห้ามรบกวน</b> และตั้ง <b>แบตเตอรี่</b> ของแอป/Chrome เป็น "ไม่จำกัด"<br>
+            6. ถ้าไม่มีใครกดเริ่มภายใน 3 นาที ระบบจะเตือนซ้ำทุก 2 นาที (สูงสุด 6 ครั้ง)</div>
+        </div>
         <div class="section-title">ติดตั้งเป็นแอป</div>
         <div class="card small muted"><b>Android:</b> เปิดใน Chrome → เมนู ⋮ → <b>เพิ่มลงในหน้าจอหลัก</b> / <b>ติดตั้งแอป</b><br><b>iPhone:</b> เปิดใน Safari → ปุ่ม <b>แชร์</b> → <b>เพิ่มลงในหน้าจอโฮม</b><br>จากนั้นเปิดจากไอคอนบนหน้าจอหลักทุกครั้ง</div>
         <div style="height:16px"></div>
@@ -514,6 +568,7 @@
       el.querySelector('#enablePush')?.addEventListener('click', enablePush);
       el.querySelector('#disablePush')?.addEventListener('click', disablePush);
       el.querySelector('#testPush')?.addEventListener('click', async () => { await api('POST', '/api/push/test'); toast('ส่งแล้ว รอสักครู่…'); });
+      el.querySelector('#testAlarm')?.addEventListener('click', () => startAlarm('ทดสอบเสียงไซเรน', 'แบบนี้คือเสียงตอนมีงานใหม่'));
       el.querySelector('#logout').onclick = async () => {
         if (!(await confirmSheet('ออกจากระบบ', 'เครื่องนี้จะไม่ได้รับการแจ้งเตือนจนกว่าจะเข้าสู่ระบบใหม่', 'ออกจากระบบ', 'danger'))) return;
         try { await api('POST', '/api/logout', { endpoint: S.pushSub?.endpoint }); } catch { /* ignore */ }

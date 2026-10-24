@@ -143,8 +143,8 @@ async function notifyUsers(userIds: number[], payload: Record<string, unknown>) 
     }
   }));
 }
-function notify(ids: Promise<number[]> | number[], title: string, body: string, url = '') {
-  const p = Promise.resolve(ids).then(list => notifyUsers(list, { title, body, url, ts: Date.now() })).catch(e => console.error('notify', e));
+function notify(ids: Promise<number[]> | number[], title: string, body: string, url = '', extra: Record<string, unknown> = {}) {
+  const p = Promise.resolve(ids).then(list => notifyUsers(list, { title, body, url, alarm: true, ts: Date.now(), ...extra })).catch(e => console.error('notify', e));
   // keep the isolate alive until pushes are sent even though the response already returned
   try { (globalThis as any).EdgeRuntime?.waitUntil(p); } catch { /* local dev */ }
 }
@@ -311,7 +311,7 @@ route('POST', '/orders', async (req) => {
   const jobs: any[] = must(await sb.from('pf_jobs').insert(rows.map(({ title: _t, ...r }) => ({ ...r, order_id: order.id }))).select('id,book_id,quantity,color'));
   must(await sb.from('pf_job_events').insert(jobs.map(j => ({ job_id: j.id, type: 'created', stage: 'cut', user_id: me.id }))));
   const created = jobs.map(j => ({ id: j.id, title: books.find(b => b.id === j.book_id)?.title, qty: j.quantity, color: j.color }));
-  notify(usersForStage('cut'), `งานใหม่ ${created.length} รายการ รอตัดกระดาษ`, created.map(c => c.title).join(', '), '#queue');
+  notify(usersForStage('cut'), `งานใหม่ ${created.length} รายการ รอตัดกระดาษ`, created.map(c => c.title).join(', '), '#queue', { tag: 'order-' + order.id });
   return { order_id: order.id, jobs: created };
 });
 
@@ -372,7 +372,7 @@ route('POST', '/jobs/:id/finish', async (req, p) => {
   if (!next || next.key === 'done') {
     notify(adminIds(), `เข้าคลังแล้ว: ${job.book_title}`, `${thNum(job.quantity)} เล่ม เสร็จครบทุกขั้นตอน`, '#board');
   } else {
-    notify(usersForStage(next.key, job.color), `งานใหม่: ${job.book_title}`, `${thNum(job.quantity)} เล่ม (${job.color}) มาจาก${stageName} รอ${next.name}`, '#queue');
+    notify(usersForStage(next.key, job.color), `งานใหม่: ${job.book_title}`, `${thNum(job.quantity)} เล่ม (${job.color}) มาจาก${stageName} รอ${next.name}`, '#queue', { tag: 'job-' + job.id });
   }
   return { job: await getJob(job.id) };
 });
@@ -416,8 +416,36 @@ route('POST', '/push/unsubscribe', async (req) => {
 route('POST', '/push/test', async (req) => {
   const me = await requireUser(req);
   // send synchronously so the client learns about failures
-  await notifyUsers([me.id], { title: 'ทดสอบการแจ้งเตือน', body: 'ถ้าเห็นข้อความนี้ แสดงว่าการแจ้งเตือนใช้งานได้', url: '', ts: Date.now() });
+  await notifyUsers([me.id], { title: 'ทดสอบการแจ้งเตือน', body: 'ถ้าเห็นข้อความนี้ แสดงว่าการแจ้งเตือนใช้งานได้', url: '', alarm: true, ts: Date.now() });
   return { ok: true };
+});
+
+// --- reminders: called by pg_cron every 2 minutes.
+// Any job still "waiting" 3+ minutes after it arrived gets re-announced to its station,
+// at most every 2 minutes and at most 6 times (≈ 15 minutes of nagging).
+route('POST', '/remind', async (req) => {
+  const key = req.headers.get('x-cron-key') || '';
+  const row: any = must(await sb.from('pf_settings').select('value').eq('key', 'cron_key').maybeSingle());
+  if (!row || key !== row.value) throw new HttpError(401, 'bad cron key');
+  const cutoff = new Date(Date.now() - 3 * 60e3).toISOString();
+  const again = new Date(Date.now() - 2 * 60e3).toISOString();
+  const jobs: any[] = must(await sb.from('pf_jobs').select(JOB_SELECT)
+    .eq('status', 'waiting').lt('updated_at', cutoff).lt('remind_count', 6)
+    .or(`reminded_at.is.null,reminded_at.lt.${again}`));
+  let sent = 0;
+  for (const raw of jobs) {
+    const j = flat(raw);
+    const minutes = Math.round((Date.now() - new Date(j.updated_at).getTime()) / 60e3);
+    const stage = stageByKey(j.stage)!;
+    await notifyUsers(await usersForStage(j.stage, j.color), {
+      title: `⏰ งานรอคิวอยู่ ${minutes} นาทีแล้ว!`,
+      body: `${j.book_title} · ${thNum(j.quantity)} เล่ม (${j.color}) รอ${stage.name} — กดเริ่มทำด้วย`,
+      url: '#queue', alarm: true, tag: 'job-' + j.id, ts: Date.now(),
+    });
+    await sb.from('pf_jobs').update({ reminded_at: nowIso(), remind_count: (j.remind_count || 0) + 1 }).eq('id', j.id);
+    sent++;
+  }
+  return { ok: true, reminded: sent };
 });
 
 // ---------------------------------------------------------------- server

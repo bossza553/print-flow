@@ -159,6 +159,16 @@ h1, h2, h3 { margin: 0; }
 .toast.error { background: var(--danger); }
 .toast.success { background: var(--success); }
 
+/* alarm overlay */
+#alarmOverlay { position: fixed; inset: 0; z-index: 50; background: rgba(185, 28, 28, .96); color: #fff; display: flex; align-items: center; justify-content: center; padding: 24px; animation: flash 1s steps(2) infinite; }
+@keyframes flash { 0% { background: rgba(185, 28, 28, .96); } 50% { background: rgba(127, 29, 29, .98); } }
+.alarm-box { text-align: center; max-width: 420px; width: 100%; }
+.alarm-ic { font-size: 72px; animation: shake .4s infinite; }
+@keyframes shake { 0%, 100% { transform: rotate(-8deg); } 50% { transform: rotate(8deg); } }
+.alarm-title { font-size: 28px; font-weight: 900; margin: 8px 0; }
+.alarm-body { font-size: 17px; opacity: .95; margin-bottom: 24px; }
+#alarmOverlay .btn { background: #fff; color: var(--danger); }
+
 /* login */
 .login { min-height: 100vh; display: flex; flex-direction: column; justify-content: center; padding: 24px; max-width: 420px; margin: 0 auto; }
 .login .logo { font-size: 48px; text-align: center; }
