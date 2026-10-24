@@ -1,0 +1,11 @@
+{
+  "name": "print-flow-android",
+  "private": true,
+  "description": "Android APK (Trusted Web Activity) wrapper for Print Flow",
+  "scripts": {
+    "build": "bubblewrap build --skipPwaValidation"
+  },
+  "devDependencies": {
+    "@bubblewrap/cli": "^1.23.0"
+  }
+}
