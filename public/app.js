@@ -158,12 +158,14 @@
     { hash: 'board', label: 'งาน', ic: '📋' },
     { hash: 'books', label: 'หนังสือ', ic: '📚' },
     { hash: 'basket', label: 'ตะกร้า', ic: '🧺' },
+    { hash: 'paper', label: 'กระดาษ', ic: '📄' },
     { hash: 'users', label: 'พนักงาน', ic: '👷' },
     { hash: 'settings', label: 'ตั้งค่า', ic: '⚙️' },
   ];
   const WORKER_TABS = [
     { hash: 'queue', label: 'งานของฉัน', ic: '🛠️' },
     { hash: 'board', label: 'ภาพรวม', ic: '📋' },
+    { hash: 'paper', label: 'กระดาษ', ic: '📄' },
     { hash: 'settings', label: 'ตั้งค่า', ic: '⚙️' },
   ];
 
@@ -316,6 +318,142 @@
       el.querySelectorAll('.chip[data-f]').forEach(c => c.onclick = () => { views.board.filter = c.dataset.f; render(); });
     },
   };
+
+  // ---- paper stock (everyone sees; admin manages; workers record usage)
+  const qtyFmt = (n) => Number(n || 0).toLocaleString('th-TH', { maximumFractionDigits: 2 });
+  views.paper = {
+    async load() {
+      const [p, j] = await Promise.all([api('GET', '/api/paper'), api('GET', '/api/jobs?active=1&limit=100' + (S.user.role === 'admin' ? '' : '&mine=1'))]);
+      return { papers: p.papers, jobs: j.jobs };
+    },
+    render(d) {
+      const isAdmin = S.user.role === 'admin';
+      const low = d.papers.filter(p => p.min_qty > 0 && p.qty <= p.min_qty);
+      return shell('กระดาษคงเหลือ', `${d.papers.length} ชนิด${low.length ? ` · ใกล้หมด ${low.length}` : ''}`, `
+        ${isAdmin ? '<button class="btn" id="addPaper">＋ เพิ่มชนิดกระดาษ</button><div style="height:10px"></div>' : ''}
+        ${d.papers.length ? d.papers.map(p => {
+          const isLow = p.min_qty > 0 && p.qty <= p.min_qty;
+          return `
+          <div class="card" data-paper="${p.id}">
+            <div class="row between">
+              <div class="grow">
+                <div class="title">${esc(p.name)}</div>
+                <div class="meta">${p.min_qty > 0 ? `ขั้นต่ำ ${qtyFmt(p.min_qty)} ${esc(p.unit)} · ` : ''}${p.note ? esc(p.note) + ' · ' : ''}อัปเดต ${ago(p.updated_at)}</div>
+              </div>
+              <div style="text-align:right">
+                <div style="font-size:26px;font-weight:800;color:${isLow ? 'var(--danger)' : p.qty <= 0 ? 'var(--danger)' : 'var(--primary)'}">${qtyFmt(p.qty)}</div>
+                <div class="small muted">${esc(p.unit)}${isLow ? ' · <b style="color:var(--danger)">ใกล้หมด</b>' : ''}</div>
+              </div>
+            </div>
+            <div class="actions">
+              <button class="btn sm ${isAdmin ? 'secondary' : ''}" data-use="${p.id}">✂️ ใช้กระดาษ</button>
+              ${isAdmin ? `<button class="btn sm success" data-add="${p.id}">＋ เพิ่มสต็อก</button><button class="btn sm secondary" data-edit="${p.id}">แก้ไข</button>` : ''}
+              <button class="btn sm ghost" data-hist="${p.id}">ประวัติ</button>
+            </div>
+          </div>`; }).join('') : `<div class="empty">ยังไม่มีข้อมูลกระดาษ${isAdmin ? '<br>กดเพิ่มชนิดกระดาษ' : ''}</div>`}
+      `);
+    },
+    mount(el, d) {
+      const byId = (id) => d.papers.find(p => p.id === Number(id));
+      el.querySelector('#addPaper')?.addEventListener('click', () => paperForm(null));
+      el.querySelectorAll('[data-edit]').forEach(b => b.onclick = () => paperForm(byId(b.dataset.edit)));
+      el.querySelectorAll('[data-add]').forEach(b => b.onclick = () => paperAddSheet(byId(b.dataset.add)));
+      el.querySelectorAll('[data-use]').forEach(b => b.onclick = () => paperUseSheet(byId(b.dataset.use), d.jobs, null));
+      el.querySelectorAll('[data-hist]').forEach(b => b.onclick = () => paperHistory(byId(b.dataset.hist)));
+    },
+  };
+
+  function paperForm(paper) {
+    openSheet(`
+      <h2>${paper ? 'แก้ไขกระดาษ' : 'เพิ่มชนิดกระดาษ'}</h2>
+      <form id="paperForm">
+        <div class="field"><label>ชื่อ / ชนิด / ขนาด *</label><input name="name" required placeholder="เช่น ปอนด์ 80 แกรม 24x35 นิ้ว" value="${esc(paper?.name)}"></div>
+        <div class="grid2">
+          <div class="field"><label>หน่วยนับ</label><input name="unit" placeholder="รีม / แผ่น / ห่อ" value="${esc(paper?.unit ?? 'รีม')}"></div>
+          <div class="field"><label>แจ้งเตือนเมื่อเหลือไม่ถึง</label><input name="min_qty" type="number" inputmode="decimal" step="any" min="0" value="${esc(paper?.min_qty ?? 0)}"></div>
+        </div>
+        ${paper ? `
+        <div class="field"><label>นับสต็อกใหม่ (จำนวนที่มีจริงตอนนี้) — เว้นว่างถ้าไม่เปลี่ยน</label><input name="recount" type="number" inputmode="decimal" step="any" min="0" placeholder="ปัจจุบัน ${qtyFmt(paper.qty)} ${esc(paper.unit)}"></div>
+        ` : `
+        <div class="field"><label>จำนวนเริ่มต้น</label><input name="qty" type="number" inputmode="decimal" step="any" min="0" value="0"></div>`}
+        <div class="field"><label>หมายเหตุ</label><input name="note" value="${esc(paper?.note)}"></div>
+        <div class="actions">
+          ${paper ? '<button type="button" class="btn danger" id="delPaper">ลบ</button>' : ''}
+          <button class="btn" type="submit">บันทึก</button>
+        </div>
+      </form>`, (el) => {
+      el.querySelector('#paperForm').onsubmit = async (e) => {
+        e.preventDefault();
+        const fd = Object.fromEntries(new FormData(e.target));
+        try {
+          if (paper) {
+            await api('PUT', `/api/paper/${paper.id}`, fd);
+            if (fd.recount !== '' && fd.recount !== undefined) await api('POST', `/api/paper/${paper.id}/adjust`, { qty: fd.recount, note: 'นับสต็อก' });
+          } else await api('POST', '/api/paper', fd);
+          closeSheet(); toast('บันทึกแล้ว', 'success'); render(true);
+        } catch (err) { toast(err.message, 'error'); }
+      };
+      el.querySelector('#delPaper')?.addEventListener('click', async () => {
+        if (!(await confirmSheet('ลบกระดาษ', `เอา "${esc(paper.name)}" ออกจากรายการ? ประวัติยังอยู่`, 'ลบ', 'danger'))) return;
+        try { await api('PUT', `/api/paper/${paper.id}`, { ...paper, active: false }); toast('ลบแล้ว'); render(true); } catch (err) { toast(err.message, 'error'); }
+      });
+    });
+  }
+
+  function paperAddSheet(paper) {
+    openSheet(`
+      <h2>＋ เพิ่มสต็อก: ${esc(paper.name)}</h2>
+      <p class="muted small">คงเหลือตอนนี้ ${qtyFmt(paper.qty)} ${esc(paper.unit)}</p>
+      <form id="addForm">
+        <div class="field"><label>จำนวนที่รับเข้า (${esc(paper.unit)}) *</label><input name="amount" type="number" inputmode="decimal" step="any" min="0.01" required autofocus class="pin-input" style="letter-spacing:0"></div>
+        <div class="field"><label>หมายเหตุ (เช่น ใบส่งของ / ร้านที่ซื้อ)</label><input name="note"></div>
+        <button class="btn big success" type="submit">บันทึกรับเข้า</button>
+      </form>`, (el) => {
+      el.querySelector('#addForm').onsubmit = async (e) => {
+        e.preventDefault();
+        const fd = Object.fromEntries(new FormData(e.target));
+        try { const r = await api('POST', `/api/paper/${paper.id}/add`, fd); closeSheet(); toast(`รับเข้าแล้ว เหลือ ${qtyFmt(r.qty_after)} ${paper.unit}`, 'success'); render(true); }
+        catch (err) { toast(err.message, 'error'); }
+      };
+    });
+  }
+
+  function paperUseSheet(paper, jobs, presetJob) {
+    const active = (jobs || []).filter(j => j.status === 'working' || j.status === 'waiting');
+    const options = active.map(j => `<option value="${j.id}" ${presetJob && presetJob.id === j.id ? 'selected' : (!presetJob && j.status === 'working' && j.worker_name === S.user.name ? 'selected' : '')}>#${j.id} ${esc(j.book_title)} (${esc(j.color)}, ${num(j.quantity)} เล่ม)</option>`).join('');
+    openSheet(`
+      <h2>✂️ ใช้กระดาษ: ${esc(paper.name)}</h2>
+      <p class="muted small">คงเหลือตอนนี้ <b>${qtyFmt(paper.qty)} ${esc(paper.unit)}</b></p>
+      <form id="useForm">
+        <div class="field"><label>จำนวนที่ใช้ (${esc(paper.unit)}) *</label><input name="amount" type="number" inputmode="decimal" step="any" min="0.01" required autofocus class="pin-input" style="letter-spacing:0"></div>
+        <div class="field"><label>ใช้กับงาน</label>
+          <select name="job_id"><option value="">— ไม่ระบุ —</option>${options}</select></div>
+        <div class="field"><label>หมายเหตุ</label><input name="note" placeholder="เช่น เผื่อเสีย 20 แผ่น"></div>
+        <button class="btn big" type="submit">บันทึกการใช้</button>
+      </form>`, (el) => {
+      el.querySelector('#useForm').onsubmit = async (e) => {
+        e.preventDefault();
+        const fd = Object.fromEntries(new FormData(e.target));
+        if (Number(fd.amount) > paper.qty && !(await confirmSheet('กระดาษไม่พอ', `ในระบบเหลือ ${qtyFmt(paper.qty)} ${esc(paper.unit)} แต่จะใช้ ${qtyFmt(fd.amount)} — บันทึกต่อไหม? (ยอดจะติดลบ ให้ผู้ดูแลนับสต็อกใหม่)`, 'บันทึก', 'danger'))) return;
+        try { const r = await api('POST', `/api/paper/${paper.id}/use`, fd); closeSheet(); toast(`บันทึกแล้ว เหลือ ${qtyFmt(r.qty_after)} ${paper.unit}`, 'success'); render(true); }
+        catch (err) { toast(err.message, 'error'); }
+      };
+    });
+  }
+
+  async function paperHistory(paper) {
+    let d;
+    try { d = await api('GET', `/api/paper/${paper.id}/moves`); } catch (err) { return toast(err.message, 'error'); }
+    const typeName = { in: '📥 รับเข้า', use: '✂️ ใช้', adjust: '📝 นับสต็อก' };
+    openSheet(`
+      <h2>ประวัติ: ${esc(paper.name)}</h2>
+      <p class="muted small">คงเหลือ ${qtyFmt(paper.qty)} ${esc(paper.unit)} · แสดง ${d.moves.length} รายการล่าสุด</p>
+      <ul class="timeline">
+        ${d.moves.map(m => `<li><b>${typeName[m.type] || m.type}</b> ${m.delta > 0 ? '+' : ''}${qtyFmt(m.delta)} ${esc(paper.unit)} → เหลือ ${qtyFmt(m.qty_after)}
+          ${m.job_title ? `<div class="small">งาน #${m.job_id} ${esc(m.job_title)}</div>` : ''}${m.note ? `<div class="small">📝 ${esc(m.note)}</div>` : ''}
+          <div class="when">${esc(m.user_name || '')} · ${fmtTime(m.created_at)}</div></li>`).join('') || '<li class="muted">ยังไม่มีรายการ</li>'}
+      </ul>`);
+  }
 
   // ---- completed books (admin): everything that reached the warehouse
   views.done = {
@@ -681,6 +819,7 @@
       ${can && j.status === 'working' ? `
         <div class="field"><label>หมายเหตุ (ถ้ามี)</label><input id="finishNote" placeholder="เช่น เสียกระดาษ 20 แผ่น"></div>
         <button class="btn big success" id="finishJob">✅ เสร็จแล้ว ส่งต่อ${idx + 1 < S.meta.stages.length - 1 ? 'ไป' + esc(S.meta.stages[idx + 1].name) : 'เข้าคลัง'}</button>` : ''}
+      ${can && j.status === 'working' ? '<div style="height:8px"></div><button class="btn secondary" id="usePaperJob">📄 บันทึกกระดาษที่ใช้กับงานนี้</button>' : ''}
       ${j.status === 'working' && !can && j.worker_name ? `<div class="muted small">กำลังทำโดย ${esc(j.worker_name)}</div>` : ''}
       <div class="section-title">ประวัติ</div>
       <ul class="timeline">
@@ -701,6 +840,14 @@
         try {
           await api('POST', `/api/jobs/${j.id}/finish`, { note: document.getElementById('finishNote')?.value || '' });
           toast('ส่งต่อแล้ว 👍', 'success'); render(true);
+        } catch (err) { toast(err.message, 'error'); }
+      });
+      el.querySelector('#usePaperJob')?.addEventListener('click', async () => {
+        try {
+          const p = await api('GET', '/api/paper');
+          if (!p.papers.length) return toast('ยังไม่มีข้อมูลกระดาษ ให้ผู้ดูแลเพิ่มก่อน', 'error');
+          openSheet(`<h2>เลือกชนิดกระดาษ</h2>${p.papers.map(pp => `<div class="card tap" data-pick="${pp.id}"><div class="row between"><div class="title">${esc(pp.name)}</div><div><b>${qtyFmt(pp.qty)}</b> <span class="small muted">${esc(pp.unit)}</span></div></div></div>`).join('')}`,
+            (el2) => el2.querySelectorAll('[data-pick]').forEach(c => c.onclick = () => paperUseSheet(p.papers.find(x => x.id === Number(c.dataset.pick)), [j], j)));
         } catch (err) { toast(err.message, 'error'); }
       });
       el.querySelector('#cancelJob')?.addEventListener('click', async () => {

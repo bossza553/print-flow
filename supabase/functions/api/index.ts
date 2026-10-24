@@ -490,6 +490,77 @@ route('POST', '/push/test', async (req) => {
   return { ok: true };
 });
 
+// --- paper stock -------------------------------------------------------
+const PAPER_SELECT = 'id,name,unit,qty,min_qty,note,active,updated_at';
+async function paperMove(paperId: number, amount: number, type: 'in' | 'use' | 'adjust', userId: number, jobId: number | null, note: string | null) {
+  const res = await sb.rpc('pf_paper_move', { p_paper_id: paperId, p_amount: amount, p_type: type, p_user_id: userId, p_job_id: jobId, p_note: note });
+  if (res.error) { if (/paper not found/.test(res.error.message)) throw new HttpError(404, 'ไม่พบกระดาษ'); throw new HttpError(500, res.error.message); }
+  const row = Array.isArray(res.data) ? res.data[0] : res.data;
+  return { qty_after: Number(row.qty_after), delta: Number(row.delta) };
+}
+async function lowStockCheck(paperId: number, qtyAfter: number) {
+  const paper: any = must(await sb.from('pf_paper').select(PAPER_SELECT).eq('id', paperId).maybeSingle());
+  if (!paper || Number(paper.min_qty) <= 0 || qtyAfter > Number(paper.min_qty)) return;
+  notify(adminIds(), `📄 กระดาษใกล้หมด: ${paper.name}`, `เหลือ ${thNum(qtyAfter)} ${paper.unit} (ขั้นต่ำ ${thNum(Number(paper.min_qty))})`, '#paper', { alarm: false, tag: 'paper-' + paper.id });
+}
+function validatePaper(body: any) {
+  const name = String(body.name || '').trim();
+  if (!name) throw new HttpError(400, 'กรุณาใส่ชื่อกระดาษ');
+  return { name, unit: String(body.unit || 'รีม').trim() || 'รีม', min_qty: Math.max(0, Number(body.min_qty) || 0), note: String(body.note || '').trim() || null };
+}
+const amountOf = (v: unknown) => { const n = Number(v); if (!isFinite(n) || n <= 0) throw new HttpError(400, 'จำนวนต้องมากกว่า 0'); return Math.round(n * 100) / 100; };
+
+route('GET', '/paper', async (req) => {
+  await requireUser(req);
+  const papers: any[] = must(await sb.from('pf_paper').select(PAPER_SELECT).eq('active', true).order('name'));
+  return { papers: papers.map(p => ({ ...p, qty: Number(p.qty), min_qty: Number(p.min_qty) })) };
+});
+route('POST', '/paper', async (req) => {
+  const me = await requireAdmin(req);
+  const body = await readJson(req);
+  const p = validatePaper(body);
+  const created: any = must(await sb.from('pf_paper').insert(p).select('id').single());
+  const initial = Number(body.qty) || 0;
+  if (initial > 0) await paperMove(created.id, initial, 'in', me.id, null, 'ยอดเริ่มต้น');
+  return { id: created.id };
+});
+route('PUT', '/paper/:id', async (req, p) => {
+  await requireAdmin(req);
+  const body = await readJson(req);
+  const upd: any = validatePaper(body);
+  if (body.active !== undefined) upd.active = !!body.active;
+  upd.updated_at = nowIso();
+  must(await sb.from('pf_paper').update(upd).eq('id', p.id));
+  return { ok: true };
+});
+route('POST', '/paper/:id/add', async (req, p) => {
+  const me = await requireAdmin(req);
+  const { amount, note } = await readJson(req);
+  const r = await paperMove(Number(p.id), amountOf(amount), 'in', me.id, null, note || null);
+  return r;
+});
+route('POST', '/paper/:id/adjust', async (req, p) => {
+  const me = await requireAdmin(req);
+  const { qty, note } = await readJson(req);
+  const n = Number(qty); if (!isFinite(n) || n < 0) throw new HttpError(400, 'จำนวนไม่ถูกต้อง');
+  const r = await paperMove(Number(p.id), Math.round(n * 100) / 100, 'adjust', me.id, null, note || 'นับสต็อก');
+  await lowStockCheck(Number(p.id), r.qty_after);
+  return r;
+});
+route('POST', '/paper/:id/use', async (req, p) => {
+  const me = await requireUser(req);
+  const { amount, job_id, note } = await readJson(req);
+  const jobId = job_id ? Number(job_id) : null;
+  const r = await paperMove(Number(p.id), amountOf(amount), 'use', me.id, jobId, note || null);
+  await lowStockCheck(Number(p.id), r.qty_after);
+  return r;
+});
+route('GET', '/paper/:id/moves', async (req, p) => {
+  await requireUser(req);
+  const rows: any[] = must(await sb.from('pf_paper_moves').select('*, user:pf_users(name), job:pf_jobs(id, book:pf_books(title))').eq('paper_id', p.id).order('id', { ascending: false }).limit(100));
+  return { moves: rows.map(({ user, job, ...m }) => ({ ...m, delta: Number(m.delta), qty_after: Number(m.qty_after), user_name: user?.name ?? null, job_title: job?.book?.title ?? null })) };
+});
+
 // --- native app device tokens
 route('POST', '/fcm/register', async (req) => {
   const me = await requireUser(req);
