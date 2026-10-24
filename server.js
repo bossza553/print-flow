@@ -277,9 +277,12 @@ route('GET', '/api/jobs', (req) => {
   const stage = url.searchParams.get('stage');
   if (stage) { where.push('j.stage = ?'); args.push(stage); }
   if (url.searchParams.get('active') === '1') where.push("j.status IN ('waiting','working')");
-  const limit = Math.min(500, Number(url.searchParams.get('limit')) || 300);
-  const sql = JOB_SELECT + (where.length ? ' WHERE ' + where.join(' AND ') : '') +
-    " ORDER BY CASE j.status WHEN 'working' THEN 0 WHEN 'waiting' THEN 1 ELSE 2 END, j.updated_at DESC, j.id DESC LIMIT ?";
+  const status = url.searchParams.get('status');
+  if (status) { where.push('j.status = ?'); args.push(status); }
+  const limit = Math.min(1000, Number(url.searchParams.get('limit')) || 300);
+  const order = status === 'done' ? ' ORDER BY j.finished_at DESC, j.id DESC LIMIT ?'
+    : " ORDER BY CASE j.status WHEN 'working' THEN 0 WHEN 'waiting' THEN 1 ELSE 2 END, j.updated_at DESC, j.id DESC LIMIT ?";
+  const sql = JOB_SELECT + (where.length ? ' WHERE ' + where.join(' AND ') : '') + order;
   return { jobs: db.prepare(sql).all(...args, limit) };
 });
 

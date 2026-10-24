@@ -282,13 +282,15 @@
         <div class="tiles">
           <div class="tile"><div class="n">${activeN}</div><div class="l">งานในสายการผลิต</div></div>
           <div class="tile"><div class="n">${working}</div><div class="l">กำลังทำอยู่</div></div>
-          <div class="tile"><div class="n">${d.sum.doneToday}</div><div class="l">เข้าคลังวันนี้</div></div>
+          ${S.user.role === 'admin'
+            ? `<a class="tile tap" href="#done" style="text-decoration:none;color:inherit;border:2px solid var(--success-soft)"><div class="n" style="color:var(--success)">${d.sum.doneToday}</div><div class="l">เข้าคลังวันนี้ ›</div></a>`
+            : `<div class="tile"><div class="n">${d.sum.doneToday}</div><div class="l">เข้าคลังวันนี้</div></div>`}
         </div>
         <div class="chips">
           <div class="chip ${f === 'active' ? 'active' : ''}" data-f="active">ทั้งหมด <span class="n">${activeN}</span></div>
           ${S.meta.stages.filter(s => s.key !== 'done').map(s =>
             `<div class="chip ${f === s.key ? 'active' : ''}" data-f="${s.key}">${esc(s.name)} <span class="n">${counts[s.key] || 0}</span></div>`).join('')}
-          <div class="chip ${f === 'done' ? 'active' : ''}" data-f="done">เสร็จแล้ว</div>
+          ${S.user.role === 'admin' ? `<a class="chip" href="#done" style="text-decoration:none;color:inherit">✓ เข้าคลังแล้ว</a>` : `<div class="chip ${f === 'done' ? 'active' : ''}" data-f="done">เสร็จแล้ว</div>`}
           <div class="chip ${f === 'cancelled' ? 'active' : ''}" data-f="cancelled">ยกเลิก</div>
         </div>
         ${list.length ? list.map(j => jobCard(j)).join('') : '<div class="empty">ไม่มีงาน</div>'}
@@ -296,6 +298,56 @@
     },
     mount(el) {
       el.querySelectorAll('.chip[data-f]').forEach(c => c.onclick = () => { views.board.filter = c.dataset.f; render(); });
+    },
+  };
+
+  // ---- completed books (admin): everything that reached the warehouse
+  views.done = {
+    q: '',
+    async load() { return api('GET', '/api/jobs?status=done&limit=1000'); },
+    render(d) {
+      const q = views.done.q.toLowerCase();
+      const list = d.jobs.filter(j => !q || j.book_title.toLowerCase().includes(q) || (j.book_code || '').toLowerCase().includes(q));
+      const dayKey = (s) => { const dt = parseDate(s); return dt ? dt.toLocaleDateString('th-TH', { year: 'numeric', month: 'long', day: 'numeric', weekday: 'short' }) : '-'; };
+      const todayKey = dayKey(new Date().toISOString());
+      const weekAgo = Date.now() - 7 * 86400e3;
+      const today = d.jobs.filter(j => dayKey(j.finished_at) === todayKey);
+      const week = d.jobs.filter(j => (parseDate(j.finished_at)?.getTime() || 0) >= weekAgo);
+      const sumQty = (arr) => arr.reduce((a, j) => a + Number(j.quantity || 0), 0);
+      const groups = [];
+      for (const j of list) {
+        const k = dayKey(j.finished_at);
+        let g = groups[groups.length - 1];
+        if (!g || g.key !== k) { g = { key: k, jobs: [] }; groups.push(g); }
+        g.jobs.push(j);
+      }
+      return shell('เข้าคลังแล้ว', `${d.jobs.length} รายการทั้งหมด`, `
+        <div class="tiles">
+          <div class="tile"><div class="n">${today.length}</div><div class="l">วันนี้ · ${num(sumQty(today))} เล่ม</div></div>
+          <div class="tile"><div class="n">${week.length}</div><div class="l">7 วัน · ${num(sumQty(week))} เล่ม</div></div>
+          <div class="tile"><div class="n">${num(sumQty(d.jobs))}</div><div class="l">เล่มทั้งหมด</div></div>
+        </div>
+        <input class="search" id="doneSearch" placeholder="ค้นหาชื่อหรือรหัสหนังสือ" value="${esc(views.done.q)}">
+        ${groups.length ? groups.map(g => `
+          <div class="section-title row between"><span>${esc(g.key)}</span><span>${g.jobs.length} รายการ · ${num(sumQty(g.jobs))} เล่ม</span></div>
+          ${g.jobs.map(j => `
+            <div class="card tap" data-job="${j.id}">
+              <div class="row between">
+                <div class="title">${esc(j.book_title)}</div>
+                <span class="badge done">✓ เข้าคลัง</span>
+              </div>
+              <div class="row wrap" style="margin-top:6px">
+                <span class="badge color">${esc(j.color)}</span>
+                <span class="badge">${num(j.quantity)} เล่ม</span>
+                ${j.machine ? `<span class="badge">เครื่อง ${esc(j.machine)}</span>` : ''}
+              </div>
+              <div class="meta">${j.book_code ? `รหัส ${esc(j.book_code)} · ` : ''}#${j.id} · เสร็จ ${fmtTime(j.finished_at)} · เริ่ม ${fmtTime(j.created_at)}</div>
+            </div>`).join('')}`).join('') : '<div class="empty">ยังไม่มีหนังสือที่เข้าคลัง</div>'}
+      `);
+    },
+    mount(el) {
+      const search = el.querySelector('#doneSearch');
+      search.oninput = () => { views.done.q = search.value; const pos = search.selectionStart; render(true); const s2 = document.getElementById('doneSearch'); s2.focus(); s2.setSelectionRange(pos, pos); };
     },
   };
 
@@ -694,7 +746,7 @@
     const [name, arg] = hash.split('/');
     if (name === 'job' && arg) { openJob(arg); return; }
     let view = views[name] || views[S.user.role === 'admin' ? 'board' : 'queue'];
-    if (S.user.role !== 'admin' && ['books', 'basket', 'users', 'qrcards'].includes(name)) view = views.queue;
+    if (S.user.role !== 'admin' && ['books', 'basket', 'users', 'qrcards', 'done'].includes(name)) view = views.queue;
     const seq = ++renderSeq;
     S.view = view;
     try {
@@ -703,7 +755,7 @@
       // keep scroll position on refresh
       const y = window.scrollY;
       const focused = document.activeElement;
-      if (!force && focused && focused.tagName === 'INPUT' && $app.contains(focused) && name !== 'books') return; // don't clobber typing
+      if (!force && focused && focused.tagName === 'INPUT' && $app.contains(focused) && !['books', 'done'].includes(name)) return; // don't clobber typing
       $app.innerHTML = view.render(data);
       view.mount?.($app, data);
       $app.querySelectorAll('[data-job]').forEach(c => c.onclick = () => openJob(c.dataset.job));

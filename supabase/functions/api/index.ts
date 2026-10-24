@@ -337,8 +337,11 @@ route('GET', '/jobs', async (req, _p, url) => {
   const stage = url.searchParams.get('stage');
   if (stage) q = q.eq('stage', stage);
   if (url.searchParams.get('active') === '1') q = q.in('status', ['waiting', 'working']);
-  const limit = Math.min(500, Number(url.searchParams.get('limit')) || 300);
-  const rows: any[] = must(await q.order('updated_at', { ascending: false }).order('id', { ascending: false }).limit(limit));
+  const status = url.searchParams.get('status');
+  if (status) q = q.eq('status', status);
+  const limit = Math.min(1000, Number(url.searchParams.get('limit')) || 300);
+  const orderCol = status === 'done' ? 'finished_at' : 'updated_at';
+  const rows: any[] = must(await q.order(orderCol, { ascending: false }).order('id', { ascending: false }).limit(limit));
   const rank: Record<string, number> = { working: 0, waiting: 1 };
   rows.sort((a, b) => (rank[a.status] ?? 2) - (rank[b.status] ?? 2));
   return { jobs: rows.map(flat) };
