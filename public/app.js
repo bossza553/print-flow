@@ -284,8 +284,9 @@
   views.board = {
     filter: 'active',
     async load() {
-      const [jobs, sum] = await Promise.all([api('GET', '/api/jobs?limit=300'), api('GET', '/api/summary')]);
-      return { jobs: jobs.jobs, sum };
+      const [jobs, sum, paper] = await Promise.all([api('GET', '/api/jobs?limit=300'), api('GET', '/api/summary'),
+        S.user.role === 'admin' ? api('GET', '/api/paper').catch(() => ({ papers: [] })) : Promise.resolve({ papers: [] })]);
+      return { jobs: jobs.jobs, sum, papers: paper.papers };
     },
     render(d) {
       const f = views.board.filter;
@@ -306,6 +307,13 @@
             ? `<a class="tile tap" href="#done" style="text-decoration:none;color:inherit;border:2px solid var(--success-soft)"><div class="n" style="color:var(--success)">${d.sum.doneToday}</div><div class="l">เข้าคลังวันนี้ ›</div></a>`
             : `<div class="tile"><div class="n">${d.sum.doneToday}</div><div class="l">เข้าคลังวันนี้</div></div>`}
         </div>
+        ${S.user.role === 'admin' && d.papers.length ? `
+        <a class="card tap" href="#paper" style="display:block;text-decoration:none;color:inherit">
+          <div class="row between"><div class="title" style="font-size:15px">📄 กระดาษคงเหลือ</div><span class="muted small">ดูทั้งหมด ›</span></div>
+          <div class="row wrap" style="margin-top:6px;gap:6px">
+            ${d.papers.map(p => { const low = p.min_qty > 0 && p.qty <= p.min_qty; return `<span class="badge" style="${low ? 'background:var(--danger-soft);color:var(--danger)' : ''}">${esc(p.name)}: <b>${qtyFmt(p.qty)}</b> ${esc(p.unit)}${low ? ' ⚠️' : ''}</span>`; }).join('')}
+          </div>
+        </a>` : ''}
         <div class="chips">
           <div class="chip ${f === 'active' ? 'active' : ''}" data-f="active">ทั้งหมด <span class="n">${activeN}</span></div>
           ${S.meta.stages.filter(s => s.key !== 'done').map(s =>
@@ -832,7 +840,7 @@
       <div class="flow">${flow}</div>
       ${can && j.status === 'waiting' ? `<button class="btn big" id="startJob">▶️ เริ่มทำ${esc(stageName(j.stage))}</button>` : ''}
       ${can && j.status === 'working' ? `
-        ${j.paper_id && j.paper_used == null ? `<div class="field"><label>📄 กระดาษที่ใช้จริง (${esc(j.paper_unit || '')}) — ระบบจะตัดสต็อกตามนี้</label><input id="finishPaper" type="number" inputmode="decimal" step="any" min="0" value="${j.stage === 'cut' && j.paper_qty ? esc(j.paper_qty) : ''}" placeholder="เว้นว่าง = ยังไม่ตัดสต็อก"></div>` : ''}
+        ${j.paper_id && j.paper_used == null ? `<div class="field"><label>📄 กระดาษที่ใช้จริง (${esc(j.paper_unit || '')}) — ระบบจะตัดสต็อกตามนี้</label><input id="finishPaper" type="number" inputmode="decimal" step="any" min="0" value="${j.stage === 'cut' && j.paper_qty ? esc(j.paper_qty) : ''}" placeholder="${j.stage === 'cut' ? 'เว้นว่าง = ใช้ตามแผน' : 'เว้นว่าง = ยังไม่ตัดสต็อก'}"></div>` : ''}
         <div class="field"><label>หมายเหตุ (ถ้ามี)</label><input id="finishNote" placeholder="เช่น เสียกระดาษ 20 แผ่น"></div>
         <button class="btn big success" id="finishJob">✅ เสร็จแล้ว ส่งต่อ${idx + 1 < S.meta.stages.length - 1 ? 'ไป' + esc(S.meta.stages[idx + 1].name) : 'เข้าคลัง'}</button>` : ''}
       ${can && j.status === 'working' ? '<div style="height:8px"></div><button class="btn secondary" id="usePaperJob">📄 บันทึกกระดาษที่ใช้กับงานนี้</button>' : ''}
