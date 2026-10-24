@@ -74,10 +74,14 @@ async function requireUser(req: Request) { const u = await auth(req); if (!u) th
 async function requireAdmin(req: Request) { const u = await requireUser(req); if (u.role !== 'admin') throw new HttpError(403, 'เฉพาะผู้ดูแลระบบเท่านั้น'); return u; }
 
 // ---------------------------------------------------------------- jobs helpers
-const JOB_SELECT = '*, book:pf_books(title,code,pages), worker:pf_users(name)';
+const JOB_SELECT = '*, book:pf_books(title,code,pages), worker:pf_users(name), paper:pf_paper(name,unit)';
 function flat(j: any) {
-  const { book, worker, ...rest } = j;
-  return { ...rest, book_title: book?.title, book_code: book?.code ?? null, book_pages: book?.pages ?? null, worker_name: worker?.name ?? null };
+  const { book, worker, paper, ...rest } = j;
+  return {
+    ...rest, book_title: book?.title, book_code: book?.code ?? null, book_pages: book?.pages ?? null, worker_name: worker?.name ?? null,
+    paper_name: paper?.name ?? null, paper_unit: paper?.unit ?? null,
+    paper_qty: rest.paper_qty == null ? null : Number(rest.paper_qty), paper_used: rest.paper_used == null ? null : Number(rest.paper_used),
+  };
 }
 async function getJob(id: string | number) {
   const j = must(await sb.from('pf_jobs').select(JOB_SELECT).eq('id', id).maybeSingle());
@@ -364,14 +368,20 @@ route('POST', '/orders', async (req) => {
   const items: any[] = Array.isArray(body.items) ? body.items : [];
   if (!items.length) throw new HttpError(400, 'ตะกร้าว่าง');
   const books: any[] = must(await sb.from('pf_books').select('*').in('id', items.map(i => Number(i.book_id))).eq('active', true));
+  const paperIds = [...new Set(items.map(i => Number(i.paper_id)).filter(n => n > 0))];
+  const papers: any[] = paperIds.length ? must(await sb.from('pf_paper').select('id').in('id', paperIds).eq('active', true)) : [];
   const rows = items.map(it => {
     const book = books.find(b => b.id === Number(it.book_id));
     if (!book) throw new HttpError(400, 'ไม่พบหนังสือ');
+    const paperId = Number(it.paper_id) > 0 ? Number(it.paper_id) : null;
+    if (paperId && !papers.some(p => p.id === paperId)) throw new HttpError(400, 'ไม่พบชนิดกระดาษ');
+    const paperQty = paperId && Number(it.paper_qty) > 0 ? Math.round(Number(it.paper_qty) * 100) / 100 : null;
     return {
       book_id: book.id,
       quantity: Math.max(1, Number(it.quantity) || book.default_qty),
       color: COLORS.includes(it.color) ? it.color : book.color,
       note: it.note || null, stage: 'cut', status: 'waiting', title: book.title,
+      paper_id: paperId, paper_qty: paperQty,
     };
   });
   const order: any = must(await sb.from('pf_orders').insert({ created_by: me.id, note: body.note || null }).select('id').single());
@@ -428,9 +438,21 @@ route('POST', '/jobs/:id/finish', async (req, p) => {
   const job = await getJob(p.id);
   if (!canWork(me, job)) throw new HttpError(403, 'งานนี้ไม่ได้อยู่ที่แผนกของคุณ');
   if (job.status !== 'working') throw new HttpError(409, 'ต้องกดเริ่มงานก่อน');
-  const { note } = await readJson(req).catch(() => ({} as any));
+  const body = await readJson(req).catch(() => ({} as any));
+  const note = body.note;
   const next = nextStage(job.stage);
   const stageName = stageByKey(job.stage)!.name;
+  // actual paper consumption: sent by the cutter (prefilled with the plan); recorded once per job
+  let paperUsed: number | null = null;
+  if (job.paper_id && job.paper_used == null) {
+    if (body.paper_used !== undefined && body.paper_used !== null && body.paper_used !== '') {
+      const n = Number(body.paper_used);
+      if (!isFinite(n) || n < 0) throw new HttpError(400, 'จำนวนกระดาษไม่ถูกต้อง');
+      paperUsed = Math.round(n * 100) / 100;
+    } else if (job.stage === 'cut' && job.paper_qty) {
+      paperUsed = job.paper_qty;
+    }
+  }
   let upd: any[];
   if (!next || next.key === 'done') {
     upd = must(await sb.from('pf_jobs').update({ stage: 'done', status: 'done', worker_id: null, finished_at: nowIso(), updated_at: nowIso() }).eq('id', job.id).eq('status', 'working').select('id'));
@@ -439,6 +461,13 @@ route('POST', '/jobs/:id/finish', async (req, p) => {
   }
   if (!upd.length) throw new HttpError(409, 'งานนี้ถูกส่งต่อไปแล้ว');
   await addEvent(job.id, 'finish', job.stage, me.id, job.machine, note || null);
+  if (paperUsed != null) {
+    await sb.from('pf_jobs').update({ paper_used: paperUsed }).eq('id', job.id);
+    if (paperUsed > 0) {
+      const r = await paperMove(job.paper_id, paperUsed, 'use', me.id, job.id, `ใช้กับงาน #${job.id} ${job.book_title}`);
+      await lowStockCheck(job.paper_id, r.qty_after);
+    }
+  }
   if (!next || next.key === 'done') {
     notify(adminIds(), `เข้าคลังแล้ว: ${job.book_title}`, `${thNum(job.quantity)} เล่ม เสร็จครบทุกขั้นตอน`, '#board');
   } else {

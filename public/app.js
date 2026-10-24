@@ -41,6 +41,7 @@
   const stageIndex = (k) => S.meta?.stages.findIndex(s => s.key === k) ?? -1;
   const roleName = (r) => S.meta?.roles[r] || r;
   const statusName = { waiting: 'รอคิว', working: 'กำลังทำ', done: 'เสร็จแล้ว', cancelled: 'ยกเลิก' };
+  const qtyFmt = (n) => Number(n || 0).toLocaleString('th-TH', { maximumFractionDigits: 2 });
 
   function toast(msg, type = '') {
     const el = document.createElement('div');
@@ -211,6 +212,7 @@
         <div class="meta">
           ${j.book_code ? `รหัส ${esc(j.book_code)} · ` : ''}#${j.id} · ${ago(j.updated_at)}
           ${j.worker_name ? ` · ${esc(j.worker_name)}` : ''}
+          ${j.paper_name ? `<br>📄 ${esc(j.paper_name)}${j.paper_qty ? ` × ${qtyFmt(j.paper_qty)} ${esc(j.paper_unit || '')}` : ''}${j.paper_used != null ? ` (ใช้จริง ${qtyFmt(j.paper_used)})` : ''}` : ''}
           ${j.note ? `<br>📝 ${esc(j.note)}` : ''}
         </div>
       </div>`;
@@ -320,7 +322,6 @@
   };
 
   // ---- paper stock (everyone sees; admin manages; workers record usage)
-  const qtyFmt = (n) => Number(n || 0).toLocaleString('th-TH', { maximumFractionDigits: 2 });
   views.paper = {
     async load() {
       const [p, j] = await Promise.all([api('GET', '/api/paper'), api('GET', '/api/jobs?active=1&limit=100' + (S.user.role === 'admin' ? '' : '&mine=1'))]);
@@ -585,7 +586,10 @@
 
   // ---- basket (admin)
   views.basket = {
-    render() {
+    async load() { try { return await api('GET', '/api/paper'); } catch { return { papers: [] }; } },
+    render(d) {
+      const papers = d?.papers || [];
+      const paperOpts = (sel) => `<option value="">— ไม่ระบุกระดาษ —</option>` + papers.map(p => `<option value="${p.id}" ${Number(sel) === p.id ? 'selected' : ''}>${esc(p.name)} (เหลือ ${qtyFmt(p.qty)} ${esc(p.unit)})</option>`).join('');
       const total = S.basket.reduce((a, b) => a + Number(b.quantity || 0), 0);
       return shell('ตะกร้างานพิมพ์', `${S.basket.length} รายการ · ${num(total)} เล่ม`, `
         ${S.basket.length === 0 ? '<div class="empty">ตะกร้าว่าง<br><a href="#books">ไปเลือกหนังสือ</a></div>' : ''}
@@ -601,6 +605,12 @@
               <span class="grow"></span>
               <select class="sel" data-color="${i}">${S.meta.colors.map(c => `<option ${it.color === c ? 'selected' : ''}>${c}</option>`).join('')}</select>
             </div>
+            <div class="row" style="margin-top:8px">
+              <select class="sel grow" data-paper="${i}">${paperOpts(it.paper_id)}</select>
+              <input class="qty" type="number" inputmode="decimal" step="any" min="0" placeholder="จำนวน" data-pqty="${i}" value="${esc(it.paper_qty ?? '')}">
+              <span class="small muted">${esc(papers.find(p => p.id === Number(it.paper_id))?.unit || '')}</span>
+            </div>
+            ${(() => { const pp = papers.find(p => p.id === Number(it.paper_id)); return pp && Number(it.paper_qty) > pp.qty ? `<div class="small" style="color:var(--danger);margin-top:4px">⚠️ กระดาษในสต็อกเหลือ ${qtyFmt(pp.qty)} ${esc(pp.unit)} ไม่พอตามแผน</div>` : ''; })()}
             <input class="note-line" placeholder="หมายเหตุถึงช่าง (ถ้ามี)" data-note="${i}" value="${esc(it.note)}">
           </div>`).join('')}
         ${S.basket.length ? `
@@ -610,16 +620,20 @@
           <button class="btn ghost" id="clearBasket">ล้างตะกร้า</button>` : ''}
       `);
     },
-    mount(el) {
+    mount(el, d) {
+      views.basket._papers = d?.papers || [];
       el.querySelectorAll('[data-rm]').forEach(b => b.onclick = () => { S.basket.splice(Number(b.dataset.rm), 1); saveBasket(); render(); });
       el.querySelectorAll('[data-qty]').forEach(i => i.onchange = () => { S.basket[Number(i.dataset.qty)].quantity = Math.max(1, Number(i.value) || 1); saveBasket(); });
       el.querySelectorAll('[data-color]').forEach(s => s.onchange = () => { S.basket[Number(s.dataset.color)].color = s.value; saveBasket(); });
       el.querySelectorAll('[data-note]').forEach(i => i.onchange = () => { S.basket[Number(i.dataset.note)].note = i.value; saveBasket(); });
+      el.querySelectorAll('[data-paper]').forEach(s2 => s2.onchange = () => { S.basket[Number(s2.dataset.paper)].paper_id = s2.value ? Number(s2.value) : null; saveBasket(); render(true); });
+      el.querySelectorAll('[data-pqty]').forEach(i => i.onchange = () => { S.basket[Number(i.dataset.pqty)].paper_qty = i.value === '' ? null : Math.max(0, Number(i.value) || 0); saveBasket(); render(true); });
       el.querySelector('#clearBasket')?.addEventListener('click', async () => {
         if (await confirmSheet('ล้างตะกร้า', 'เอาทุกรายการออกจากตะกร้า?', 'ล้าง', 'danger')) { S.basket = []; saveBasket(); render(); }
       });
       el.querySelector('#submitOrder')?.addEventListener('click', async () => {
-        const lines = S.basket.map(b => `• ${esc(b.title)} — ${num(b.quantity)} เล่ม (${esc(b.color)})`).join('<br>');
+        const papers = S.cache.papers || [];
+        const lines = S.basket.map(b => { const pp = (views.basket._papers || []).find(p => p.id === Number(b.paper_id)); return `• ${esc(b.title)} — ${num(b.quantity)} เล่ม (${esc(b.color)})${pp ? `<br>&nbsp;&nbsp;📄 ${esc(pp.name)}${b.paper_qty ? ` × ${qtyFmt(b.paper_qty)} ${esc(pp.unit)}` : ''}` : ''}`; }).join('<br>');
         if (!(await confirmSheet('ยืนยันส่งงาน', `${lines}<br><br>งานจะไปที่แผนก <b>ตัดกระดาษ</b> ก่อน และช่างจะได้รับการแจ้งเตือน`, 'ส่งงาน'))) return;
         try {
           const note = document.getElementById('orderNote')?.value || '';
@@ -814,9 +828,11 @@
         ${j.machine ? `<span class="badge">เครื่อง ${esc(j.machine)}</span>` : ''}<span class="badge">งาน #${j.id}</span>
       </div>
       ${j.note ? `<div class="card" style="background:var(--warn-soft);color:var(--warn)">📝 ${esc(j.note)}</div>` : ''}
+      ${j.paper_name ? `<div class="card" style="background:var(--primary-soft)"><b>📄 กระดาษ:</b> ${esc(j.paper_name)}${j.paper_qty ? ` × <b>${qtyFmt(j.paper_qty)} ${esc(j.paper_unit || '')}</b>` : ''}${j.paper_used != null ? `<div class="small">ใช้จริง ${qtyFmt(j.paper_used)} ${esc(j.paper_unit || '')} (ตัดสต็อกแล้ว)</div>` : ''}</div>` : ''}
       <div class="flow">${flow}</div>
       ${can && j.status === 'waiting' ? `<button class="btn big" id="startJob">▶️ เริ่มทำ${esc(stageName(j.stage))}</button>` : ''}
       ${can && j.status === 'working' ? `
+        ${j.paper_id && j.paper_used == null ? `<div class="field"><label>📄 กระดาษที่ใช้จริง (${esc(j.paper_unit || '')}) — ระบบจะตัดสต็อกตามนี้</label><input id="finishPaper" type="number" inputmode="decimal" step="any" min="0" value="${j.stage === 'cut' && j.paper_qty ? esc(j.paper_qty) : ''}" placeholder="เว้นว่าง = ยังไม่ตัดสต็อก"></div>` : ''}
         <div class="field"><label>หมายเหตุ (ถ้ามี)</label><input id="finishNote" placeholder="เช่น เสียกระดาษ 20 แผ่น"></div>
         <button class="btn big success" id="finishJob">✅ เสร็จแล้ว ส่งต่อ${idx + 1 < S.meta.stages.length - 1 ? 'ไป' + esc(S.meta.stages[idx + 1].name) : 'เข้าคลัง'}</button>` : ''}
       ${can && j.status === 'working' ? '<div style="height:8px"></div><button class="btn secondary" id="usePaperJob">📄 บันทึกกระดาษที่ใช้กับงานนี้</button>' : ''}
@@ -838,7 +854,8 @@
         const msg = next && next.key !== 'done' ? `งานจะถูกส่งไปที่ <b>${esc(next.name)}</b> และช่างจะได้รับแจ้งเตือน` : 'งานจะถูกบันทึกว่าเข้าคลังแล้ว';
         if (!(await confirmSheet('ยืนยันว่าเสร็จแล้ว', msg, 'ยืนยัน'))) return;
         try {
-          await api('POST', `/api/jobs/${j.id}/finish`, { note: document.getElementById('finishNote')?.value || '' });
+          const pu = document.getElementById('finishPaper')?.value;
+          await api('POST', `/api/jobs/${j.id}/finish`, { note: document.getElementById('finishNote')?.value || '', ...(pu !== undefined ? { paper_used: pu } : {}) });
           toast('ส่งต่อแล้ว 👍', 'success'); render(true);
         } catch (err) { toast(err.message, 'error'); }
       });
