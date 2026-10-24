@@ -89,7 +89,7 @@ function adminIds() {
   return db.prepare("SELECT id FROM users WHERE active = 1 AND role = 'admin'").all().map(r => r.id);
 }
 
-function notify(userIds, title, body, url = '/') {
+function notify(userIds, title, body, url = '') {
   push.notifyUsers(userIds, { title, body, url, ts: Date.now() }).catch(() => {});
 }
 
@@ -255,7 +255,7 @@ route('POST', '/api/orders', async (req) => {
     }
     db.exec('COMMIT');
     const titles = created.map(c => c.title).join(', ');
-    notify(usersForStage('cut'), `งานใหม่ ${created.length} รายการ รอตัดกระดาษ`, titles, '/#queue');
+    notify(usersForStage('cut'), `งานใหม่ ${created.length} รายการ รอตัดกระดาษ`, titles, '#queue');
     return { order_id: orderId, jobs: created };
   } catch (e) {
     db.exec('ROLLBACK');
@@ -316,11 +316,11 @@ route('POST', '/api/jobs/:id/finish', async (req, p) => {
   const stageName = stageByKey(job.stage).name;
   if (!next || next.key === 'done') {
     db.prepare("UPDATE jobs SET stage = 'done', status = 'done', worker_id = NULL, finished_at = datetime('now'), updated_at = datetime('now') WHERE id = ?").run(job.id);
-    notify(adminIds(), `เข้าคลังแล้ว: ${job.book_title}`, `${job.quantity.toLocaleString('th-TH')} เล่ม เสร็จครบทุกขั้นตอน`, '/#board');
+    notify(adminIds(), `เข้าคลังแล้ว: ${job.book_title}`, `${job.quantity.toLocaleString('th-TH')} เล่ม เสร็จครบทุกขั้นตอน`, '#board');
   } else {
     db.prepare("UPDATE jobs SET stage = ?, status = 'waiting', worker_id = NULL, updated_at = datetime('now') WHERE id = ?").run(next.key, job.id);
     notify(usersForStage(next.key, job.color), `งานใหม่: ${job.book_title}`,
-      `${job.quantity.toLocaleString('th-TH')} เล่ม (${job.color}) มาจาก${stageName} รอ${next.name}`, '/#queue');
+      `${job.quantity.toLocaleString('th-TH')} เล่ม (${job.color}) มาจาก${stageName} รอ${next.name}`, '#queue');
   }
   return { job: getJob(job.id) };
 });
@@ -359,7 +359,7 @@ route('POST', '/api/push/unsubscribe', async (req) => {
 
 route('POST', '/api/push/test', (req) => {
   const me = requireUser(req);
-  notify([me.id], 'ทดสอบการแจ้งเตือน', 'ถ้าเห็นข้อความนี้ แสดงว่าการแจ้งเตือนใช้งานได้', '/');
+  notify([me.id], 'ทดสอบการแจ้งเตือน', 'ถ้าเห็นข้อความนี้ แสดงว่าการแจ้งเตือนใช้งานได้', '');
   return { ok: true };
 });
 

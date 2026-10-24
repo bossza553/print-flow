@@ -16,6 +16,8 @@
   };
   const $app = document.getElementById('app');
   const $sheet = document.getElementById('sheet-root');
+  // API base: same origin by default, or the Supabase Edge Function when configured (config.js)
+  const API = (window.PF_CONFIG && window.PF_CONFIG.apiBase) || '';
 
   // ------------------------------------------------------------ utils
   const esc = (s) => String(s ?? '').replace(/[&<>"']/g, c => ({ '&': '&amp;', '<': '&lt;', '>': '&gt;', '"': '&quot;', "'": '&#39;' }[c]));
@@ -56,7 +58,7 @@
   }
 
   async function api(method, path, body) {
-    const res = await fetch(path, {
+    const res = await fetch(API + path, {
       method,
       headers: { 'Content-Type': 'application/json', ...(S.token ? { Authorization: 'Bearer ' + S.token } : {}) },
       body: body === undefined ? undefined : JSON.stringify(body),
@@ -448,7 +450,8 @@
   // ---- QR login cards (admin)
   views.qrcards = {
     async load() {
-      const res = await fetch('/api/qr-cards?url=' + encodeURIComponent(location.origin), { headers: { Authorization: 'Bearer ' + S.token } });
+      const appLink = location.origin + location.pathname.replace(/[^/]*$/, '');
+      const res = await fetch(API + '/api/qr-cards?url=' + encodeURIComponent(appLink), { headers: { Authorization: 'Bearer ' + S.token } });
       if (!res.ok) { let e = {}; try { e = await res.json(); } catch { /* empty */ } throw new Error(e.error || 'โหลดบัตรไม่ได้'); }
       return { html: await res.text() };
     },
@@ -684,7 +687,7 @@
   }
 
   if ('serviceWorker' in navigator) {
-    navigator.serviceWorker.register('/sw.js').catch(err => console.warn('sw failed', err));
+    navigator.serviceWorker.register('./sw.js').catch(err => console.warn('sw failed', err));
   }
   boot().catch(err => { $app.innerHTML = `<div class="center">เชื่อมต่อเซิร์ฟเวอร์ไม่ได้<br><span class="muted small">${esc(err.message)}</span></div>`; });
 })();
