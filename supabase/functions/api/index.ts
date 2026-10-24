@@ -126,22 +126,32 @@ async function getPush() {
   });
   return appServer;
 }
+// Alarm notifications are sent REPEAT times a few seconds apart with the same tag:
+// Android replays the sound/vibration on each one (renotify) without stacking notifications.
+const ALARM_REPEAT = 3;
+const ALARM_GAP_MS = 4000;
+const sleep = (ms: number) => new Promise(r => setTimeout(r, ms));
 async function notifyUsers(userIds: number[], payload: Record<string, unknown>) {
   const ids = [...new Set(userIds)].filter(Boolean);
   if (!ids.length) return;
   const subs: any[] = must(await sb.from('pf_push_subs').select('endpoint,sub_json').in('user_id', ids));
   if (!subs.length) return;
   const server = await getPush();
-  const body = JSON.stringify(payload);
-  await Promise.all(subs.map(async s => {
-    try {
-      await server.subscribe(JSON.parse(s.sub_json)).pushTextMessage(body, { ttl: 43200 });
-    } catch (e: any) {
-      const st = e?.response?.status ?? e?.status;
-      if (st === 404 || st === 410 || e?.isGone?.()) await sb.from('pf_push_subs').delete().eq('endpoint', s.endpoint);
-      else console.warn('push failed', e?.message ?? e);
-    }
-  }));
+  const times = payload.alarm ? ALARM_REPEAT : 1;
+  const tag = payload.tag || ('pf-' + Date.now());
+  for (let i = 0; i < times; i++) {
+    if (i > 0) await sleep(ALARM_GAP_MS);
+    const body = JSON.stringify({ ...payload, tag, ring: i + 1, of: times });
+    await Promise.all(subs.map(async s => {
+      try {
+        await server.subscribe(JSON.parse(s.sub_json)).pushTextMessage(body, { ttl: 43200, urgency: 'high' });
+      } catch (e: any) {
+        const st = e?.response?.status ?? e?.status;
+        if (st === 404 || st === 410 || e?.isGone?.()) await sb.from('pf_push_subs').delete().eq('endpoint', s.endpoint);
+        else console.warn('push failed', e?.message ?? e);
+      }
+    }));
+  }
 }
 function notify(ids: Promise<number[]> | number[], title: string, body: string, url = '', extra: Record<string, unknown> = {}) {
   const p = Promise.resolve(ids).then(list => notifyUsers(list, { title, body, url, alarm: true, ts: Date.now(), ...extra })).catch(e => console.error('notify', e));
@@ -416,7 +426,7 @@ route('POST', '/push/unsubscribe', async (req) => {
 route('POST', '/push/test', async (req) => {
   const me = await requireUser(req);
   // send synchronously so the client learns about failures
-  await notifyUsers([me.id], { title: 'ทดสอบการแจ้งเตือน', body: 'ถ้าเห็นข้อความนี้ แสดงว่าการแจ้งเตือนใช้งานได้', url: '', alarm: true, ts: Date.now() });
+  await notifyUsers([me.id], { title: 'ทดสอบการแจ้งเตือน', body: 'จะดัง 3 ครั้งติดกัน ถ้าเบาไป ให้ตั้งเสียงแจ้งเตือนของแอปเป็นเสียงปลุก', url: '', alarm: true, tag: 'pf-test', ts: Date.now() });
   return { ok: true };
 });
 
