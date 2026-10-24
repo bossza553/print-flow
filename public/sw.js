@@ -1,6 +1,6 @@
 // Service worker: receives push notifications and caches the app shell.
 // All paths are relative so the app works at a sub-path (e.g. GitHub Pages).
-const CACHE = 'print-flow-v8';
+const CACHE = 'print-flow-v9';
 const SHELL = ['./', './index.html', './config.js', './app.js', './styles.css', './manifest.webmanifest', './icon-192.png', './icon-512.png'];
 
 self.addEventListener('install', (event) => {
@@ -18,8 +18,10 @@ self.addEventListener('activate', (event) => {
 self.addEventListener('fetch', (event) => {
   const url = new URL(event.request.url);
   if (event.request.method !== 'GET' || url.origin !== self.location.origin || url.pathname.includes('/api/')) return;
+  // GitHub Pages serves files with a 10-minute browser cache; revalidate with the server every time
+  // (cheap thanks to ETags) so updates reach phones on the next open.
   event.respondWith(
-    fetch(event.request).then(res => {
+    fetch(event.request, { cache: 'no-cache' }).then(res => {
       const copy = res.clone();
       caches.open(CACHE).then(c => c.put(event.request, copy));
       return res;
