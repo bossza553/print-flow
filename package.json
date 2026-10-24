@@ -8,8 +8,11 @@
     "start": "node server.js",
     "dev": "node --watch server.js"
   },
-  "engines": { "node": ">=22.13" },
+  "engines": {
+    "node": ">=22.13"
+  },
   "dependencies": {
+    "qrcode": "^1.5.4",
     "web-push": "^3.6.7"
   }
 }
