@@ -375,8 +375,9 @@ async function serveStatic(req, res) {
     if (!s.isFile()) throw new Error('not file');
     const ext = path.extname(file);
     const headers = { 'Content-Type': MIME[ext] || 'application/octet-stream' };
-    // service worker + html must never be cached by the browser
-    headers['Cache-Control'] = (ext === '.html' || pathname === '/sw.js') ? 'no-cache' : 'public, max-age=3600';
+    // html / js / css / sw are tiny: always revalidate so updates reach phones immediately.
+    // Only icons get a long cache.
+    headers['Cache-Control'] = ['.html', '.js', '.css', '.webmanifest'].includes(ext) ? 'no-cache' : 'public, max-age=86400';
     res.writeHead(200, headers);
     res.end(await readFile(file));
   } catch {

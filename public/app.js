@@ -456,6 +456,8 @@
       const u = S.user;
       let notif;
       if (!d.secure) notif = '<div class="muted small">⚠️ การแจ้งเตือนต้องเปิดผ่าน HTTPS (หรือ localhost) เท่านั้น</div>';
+      else if (d.perm === 'unsupported' && /iPhone|iPad/.test(navigator.userAgent) && !window.navigator.standalone)
+        notif = '<div class="muted small">📱 บน iPhone ต้องติดตั้งก่อนถึงจะแจ้งเตือนได้:<br>1. กดปุ่ม <b>แชร์</b> (สี่เหลี่ยมมีลูกศร) ด้านล่าง<br>2. เลือก <b>เพิ่มลงในหน้าจอโฮม</b><br>3. ปิด Safari แล้วเปิดแอปจากไอคอนบนหน้าจอโฮม<br>4. กลับมาหน้านี้แล้วกดเปิดการแจ้งเตือน</div>';
       else if (d.perm === 'unsupported') notif = '<div class="muted small">เบราว์เซอร์นี้ไม่รองรับการแจ้งเตือน ลองใช้ Chrome บน Android</div>';
       else if (d.perm === 'denied') notif = '<div class="muted small">❌ คุณปิดการแจ้งเตือนไว้ เปิดได้ที่ การตั้งค่าเบราว์เซอร์ → การแจ้งเตือน</div>';
       else if (d.subscribed) notif = `<div class="small" style="color:var(--success)">✅ เปิดการแจ้งเตือนบนเครื่องนี้แล้ว</div>
@@ -470,7 +472,7 @@
         <div class="section-title">การแจ้งเตือน</div>
         <div class="card">${notif}</div>
         <div class="section-title">ติดตั้งเป็นแอป</div>
-        <div class="card small muted">บน Android: เปิดเมนู Chrome (⋮) → <b>เพิ่มลงในหน้าจอหลัก</b> / <b>ติดตั้งแอป</b> จากนั้นเปิดจากไอคอนบนหน้าจอหลัก</div>
+        <div class="card small muted"><b>Android:</b> เปิดใน Chrome → เมนู ⋮ → <b>เพิ่มลงในหน้าจอหลัก</b> / <b>ติดตั้งแอป</b><br><b>iPhone:</b> เปิดใน Safari → ปุ่ม <b>แชร์</b> → <b>เพิ่มลงในหน้าจอโฮม</b><br>จากนั้นเปิดจากไอคอนบนหน้าจอหลักทุกครั้ง</div>
         <div style="height:16px"></div>
         <button class="btn danger" id="logout">ออกจากระบบ</button>
         <div class="center muted small">Print Flow v0.1</div>
