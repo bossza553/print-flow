@@ -135,10 +135,11 @@ async function notifyUsers(userIds: number[], payload: Record<string, unknown>) 
   const ids = [...new Set(userIds)].filter(Boolean);
   if (!ids.length) return;
   const subs: any[] = must(await sb.from('pf_push_subs').select('endpoint,sub_json').in('user_id', ids));
-  if (!subs.length) return;
-  const server = await getPush();
   const times = payload.alarm ? ALARM_REPEAT : 1;
   const tag = payload.tag || ('pf-' + Date.now());
+  notifyFcm(ids, { ...payload, tag }).catch(e => console.warn('fcm', e?.message ?? e));
+  if (!subs.length) return;
+  const server = await getPush();
   for (let i = 0; i < times; i++) {
     if (i > 0) await sleep(ALARM_GAP_MS);
     const body = JSON.stringify({ ...payload, tag, ring: i + 1, of: times });
@@ -153,6 +154,62 @@ async function notifyUsers(userIds: number[], payload: Record<string, unknown>) 
     }));
   }
 }
+// ---------------------------------------------------------------- FCM (native Android app)
+// The service-account JSON from Firebase lives in pf_settings['fcm_service_account'] (service role only).
+// Data-only, high-priority messages wake the app so it can run its own looping alarm.
+let fcmSa: any = null;
+let fcmAccess: { token: string; exp: number } | null = null;
+const b64u = (bytes: Uint8Array) => bytesToB64u(bytes);
+const utf8 = (s: string) => new TextEncoder().encode(s);
+async function getFcmSa() {
+  if (fcmSa) return fcmSa;
+  const row: any = must(await sb.from('pf_settings').select('value').eq('key', 'fcm_service_account').maybeSingle());
+  if (!row) return null;
+  try { fcmSa = JSON.parse(row.value); } catch { fcmSa = null; }
+  return fcmSa;
+}
+async function fcmAccessToken(sa: any) {
+  if (fcmAccess && fcmAccess.exp > Date.now() + 60e3) return fcmAccess.token;
+  const now = Math.floor(Date.now() / 1000);
+  const header = b64u(utf8(JSON.stringify({ alg: 'RS256', typ: 'JWT' })));
+  const claims = b64u(utf8(JSON.stringify({ iss: sa.client_email, scope: 'https://www.googleapis.com/auth/firebase.messaging', aud: 'https://oauth2.googleapis.com/token', iat: now, exp: now + 3600 })));
+  const pem = String(sa.private_key).replace(/-----[A-Z ]+-----/g, '').replace(/\s+/g, '');
+  const der = Uint8Array.from(atob(pem), c => c.charCodeAt(0));
+  const key = await crypto.subtle.importKey('pkcs8', der, { name: 'RSASSA-PKCS1-v1_5', hash: 'SHA-256' }, false, ['sign']);
+  const sig = new Uint8Array(await crypto.subtle.sign('RSASSA-PKCS1-v1_5', key, utf8(`${header}.${claims}`)));
+  const jwt = `${header}.${claims}.${b64u(sig)}`;
+  const res = await fetch('https://oauth2.googleapis.com/token', {
+    method: 'POST', headers: { 'Content-Type': 'application/x-www-form-urlencoded' },
+    body: new URLSearchParams({ grant_type: 'urn:ietf:params:oauth:grant-type:jwt-bearer', assertion: jwt }),
+  });
+  const j = await res.json();
+  if (!j.access_token) throw new Error('fcm oauth failed: ' + JSON.stringify(j).slice(0, 200));
+  fcmAccess = { token: j.access_token, exp: Date.now() + (j.expires_in || 3600) * 1000 };
+  return fcmAccess.token;
+}
+async function notifyFcm(userIds: number[], payload: Record<string, unknown>) {
+  const sa = await getFcmSa();
+  if (!sa) return;
+  const rows: any[] = must(await sb.from('pf_fcm_tokens').select('token').in('user_id', userIds));
+  if (!rows.length) return;
+  const access = await fcmAccessToken(sa);
+  const data: Record<string, string> = {};
+  for (const [k, v] of Object.entries(payload)) data[k] = String(v ?? '');
+  await Promise.all(rows.map(async r => {
+    try {
+      const res = await fetch(`https://fcm.googleapis.com/v1/projects/${sa.project_id}/messages:send`, {
+        method: 'POST', headers: { Authorization: 'Bearer ' + access, 'Content-Type': 'application/json' },
+        body: JSON.stringify({ message: { token: r.token, data, android: { priority: 'HIGH', ttl: '43200s' } } }),
+      });
+      if (res.status === 404 || res.status === 400) {
+        const t = await res.text();
+        if (/UNREGISTERED|NOT_FOUND|InvalidRegistration|registration-token-not-registered/i.test(t)) await sb.from('pf_fcm_tokens').delete().eq('token', r.token);
+        else console.warn('fcm send', res.status, t.slice(0, 200));
+      } else if (!res.ok) console.warn('fcm send', res.status, (await res.text()).slice(0, 200));
+    } catch (e: any) { console.warn('fcm error', e?.message ?? e); }
+  }));
+}
+
 function notify(ids: Promise<number[]> | number[], title: string, body: string, url = '', extra: Record<string, unknown> = {}) {
   const p = Promise.resolve(ids).then(list => notifyUsers(list, { title, body, url, alarm: true, ts: Date.now(), ...extra })).catch(e => console.error('notify', e));
   // keep the isolate alive until pushes are sent even though the response already returned
@@ -430,6 +487,20 @@ route('POST', '/push/test', async (req) => {
   const me = await requireUser(req);
   // send synchronously so the client learns about failures
   await notifyUsers([me.id], { title: 'ทดสอบการแจ้งเตือน', body: 'จะดัง 3 ครั้งติดกัน ถ้าเบาไป ให้ตั้งเสียงแจ้งเตือนของแอปเป็นเสียงปลุก', url: '', alarm: true, tag: 'pf-test', ts: Date.now() });
+  return { ok: true };
+});
+
+// --- native app device tokens
+route('POST', '/fcm/register', async (req) => {
+  const me = await requireUser(req);
+  const { token, platform } = await readJson(req);
+  if (!token || String(token).length < 20) throw new HttpError(400, 'invalid token');
+  must(await sb.from('pf_fcm_tokens').upsert({ user_id: me.id, token: String(token), platform: String(platform || 'android'), updated_at: nowIso() }, { onConflict: 'token' }));
+  return { ok: true, fcmConfigured: !!(await getFcmSa()) };
+});
+route('POST', '/fcm/unregister', async (req) => {
+  const { token } = await readJson(req);
+  if (token) await sb.from('pf_fcm_tokens').delete().eq('token', String(token));
   return { ok: true };
 });
 

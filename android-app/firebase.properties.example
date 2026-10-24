@@ -1,0 +1,9 @@
+# Copy to firebase.properties and fill from google-services.json (Firebase console → Project settings → Your apps → Android)
+#   projectId  = project_info.project_id
+#   senderId   = project_info.project_number
+#   appId      = client[0].client_info.mobilesdk_app_id
+#   apiKey     = client[0].api_key[0].current_key
+projectId=
+senderId=
+appId=
+apiKey=

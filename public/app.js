@@ -18,6 +18,10 @@
   const $sheet = document.getElementById('sheet-root');
   // API base: same origin by default, or the Supabase Edge Function when configured (config.js)
   const API = (window.PF_CONFIG && window.PF_CONFIG.apiBase) || '';
+  // Running inside the native Android app? It injects window.Android and handles alarms itself.
+  const NATIVE = !!(window.Android && typeof window.Android.onLogin === 'function');
+  const nativeLogin = (token) => { if (NATIVE) { try { window.Android.onLogin(token); } catch { /* ignore */ } } };
+  const nativeLogout = () => { if (NATIVE) { try { window.Android.onLogout(); } catch { /* ignore */ } } };
 
   // ------------------------------------------------------------ utils
   const esc = (s) => String(s ?? '').replace(/[&<>"']/g, c => ({ '&': '&amp;', '<': '&lt;', '>': '&gt;', '"': '&quot;', "'": '&#39;' }[c]));
@@ -96,7 +100,7 @@
     if (navigator.vibrate) navigator.vibrate(0);
     document.getElementById('alarmOverlay')?.remove();
   }
-  function beep() { startAlarm('งานใหม่มาถึงแล้ว!', 'แตะรับทราบ แล้วกดเริ่มทำงานในคิว'); }
+  function beep() { if (NATIVE) return; startAlarm('งานใหม่มาถึงแล้ว!', 'แตะรับทราบ แล้วกดเริ่มทำงานในคิว'); }
 
   // the service worker forwards every push to open pages so the siren sounds immediately
   if ('serviceWorker' in navigator) {
@@ -236,6 +240,7 @@
           const r = await api('POST', '/api/login', { pin });
           S.token = r.token; S.user = r.user;
           localStorage.setItem('pf_token', r.token);
+          nativeLogin(r.token);
           location.hash = r.user.role === 'admin' ? '#board' : '#queue';
           await boot();
         } catch (err) { toast(err.message, 'error'); e.target.pin.value = ''; e.target.pin.focus(); }
@@ -590,7 +595,8 @@
     render(d) {
       const u = S.user;
       let notif;
-      if (!d.secure) notif = '<div class="muted small">⚠️ การแจ้งเตือนต้องเปิดผ่าน HTTPS (หรือ localhost) เท่านั้น</div>';
+      if (NATIVE) notif = '<div class="small" style="color:var(--success)">✅ แอป Android: แจ้งเตือนแบบนาฬิกาปลุกเปิดอยู่ (ดังจนกว่าจะกดรับทราบ แม้ปิดแอป)</div><div class="small muted" style="margin-top:6px">ถ้าไม่ดัง: ตั้งค่าโทรศัพท์ → แอป → Print Flow → แบตเตอรี่ → ไม่จำกัด และอนุญาต "การแจ้งเตือนเต็มหน้าจอ"</div>';
+      else if (!d.secure) notif = '<div class="muted small">⚠️ การแจ้งเตือนต้องเปิดผ่าน HTTPS (หรือ localhost) เท่านั้น</div>';
       else if (d.perm === 'unsupported' && /iPhone|iPad/.test(navigator.userAgent) && !window.navigator.standalone)
         notif = '<div class="muted small">📱 บน iPhone ต้องติดตั้งก่อนถึงจะแจ้งเตือนได้:<br>1. กดปุ่ม <b>แชร์</b> (สี่เหลี่ยมมีลูกศร) ด้านล่าง<br>2. เลือก <b>เพิ่มลงในหน้าจอโฮม</b><br>3. ปิด Safari แล้วเปิดแอปจากไอคอนบนหน้าจอโฮม<br>4. กลับมาหน้านี้แล้วกดเปิดการแจ้งเตือน</div>';
       else if (d.perm === 'unsupported') notif = '<div class="muted small">เบราว์เซอร์นี้ไม่รองรับการแจ้งเตือน ลองใช้ Chrome บน Android</div>';
@@ -625,8 +631,8 @@
             5. ปิด <b>ห้ามรบกวน</b> และตั้ง <b>แบตเตอรี่</b> ของแอป/Chrome เป็น "ไม่จำกัด"<br>
             6. ถ้าไม่มีใครกดเริ่มภายใน 3 นาที ระบบจะเตือนซ้ำทุก 2 นาที (สูงสุด 6 ครั้ง)</div>
         </div>
-        <div class="section-title">ติดตั้งเป็นแอป</div>
-        <div class="card small muted"><b>Android (แนะนำ):</b> <a href="./print-flow.apk">ดาวน์โหลดแอป Print Flow (.apk)</a> แล้วเปิดไฟล์เพื่อติดตั้ง (ถ้าถามให้อนุญาตติดตั้งจากแหล่งนี้)<br><b>Android (ไม่ติดตั้ง APK):</b> เปิดใน Chrome → เมนู ⋮ → <b>เพิ่มลงในหน้าจอหลัก</b> / <b>ติดตั้งแอป</b><br><b>iPhone:</b> เปิดใน Safari → ปุ่ม <b>แชร์</b> → <b>เพิ่มลงในหน้าจอโฮม</b><br>จากนั้นเปิดจากไอคอนบนหน้าจอหลักทุกครั้ง</div>
+        ${NATIVE ? '' : '<div class="section-title">ติดตั้งเป็นแอป</div>'}
+        ${NATIVE ? '' : `<div class="card small muted"><b>Android (แนะนำ):</b> <a href="./print-flow.apk">ดาวน์โหลดแอป Print Flow (.apk)</a> แล้วเปิดไฟล์เพื่อติดตั้ง (ถ้าถามให้อนุญาตติดตั้งจากแหล่งนี้)<br><b>Android (ไม่ติดตั้ง APK):</b> เปิดใน Chrome → เมนู ⋮ → <b>เพิ่มลงในหน้าจอหลัก</b> / <b>ติดตั้งแอป</b><br><b>iPhone:</b> เปิดใน Safari → ปุ่ม <b>แชร์</b> → <b>เพิ่มลงในหน้าจอโฮม</b><br>จากนั้นเปิดจากไอคอนบนหน้าจอหลักทุกครั้ง</div>`}
         <div style="height:16px"></div>
         <button class="btn danger" id="logout">ออกจากระบบ</button>
         <div class="center muted small">Print Flow v0.1</div>
@@ -813,6 +819,7 @@
   document.addEventListener('visibilitychange', () => { if (document.visibilityState === 'visible') { holdWakeLock(); render(); } });
 
   function logoutLocal() {
+    nativeLogout();
     S.token = null; S.user = null; S.knownQueueIds = null;
     localStorage.removeItem('pf_token');
     clearInterval(S.pollTimer);
@@ -825,7 +832,7 @@
     if (S.token && !S.user) {
       try { S.user = (await api('GET', '/api/me')).user; } catch { S.user = null; }
     }
-    if (S.user) { syncPush(); startPolling(); holdWakeLock(); }
+    if (S.user) { syncPush(); startPolling(); holdWakeLock(); nativeLogin(S.token); }
     render();
   }
 

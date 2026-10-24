@@ -1,0 +1,8 @@
+<resources>
+    <string name="app_name">Print Flow</string>
+    <string name="channel_alarm">งานใหม่ (เสียงปลุก)</string>
+    <string name="channel_alarm_desc">ดังต่อเนื่องจนกว่าจะกดรับทราบ</string>
+    <string name="ack">รับทราบ</string>
+    <string name="new_job">งานใหม่!</string>
+    <string name="open_app">เปิดแอป</string>
+</resources>

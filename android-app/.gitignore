@@ -1,0 +1,8 @@
+firebase.properties
+google-services.json
+build/
+.gradle/
+app/build/
+local.properties
+*.apk
+*.aab
