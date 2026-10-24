@@ -164,3 +164,24 @@ public/app.js      – หน้าจอทั้งหมด
 public/sw.js       – service worker: รับ push, ทำงาน offline
 data/              – ฐานข้อมูล (อย่าลืม backup)
 ```
+
+## แอป Android (.apk)
+
+โฟลเดอร์ `android/` คือตัวห่อแบบ Trusted Web Activity (Bubblewrap) ที่เปิดเว็บ https://bossza553.github.io/print-flow/ แบบเต็มจอเหมือนแอปจริง
+การแจ้งเตือนใช้ระบบเดียวกับเว็บ (Web Push ผ่าน Chrome)
+
+- ดาวน์โหลดเวอร์ชันล่าสุด: https://github.com/bossza553/print-flow/releases/latest/download/print-flow.apk
+- ไฟล์ `.well-known/assetlinks.json` บน https://bossza553.github.io (repo `bossza553.github.io`) คือสิ่งที่บอก Android ว่าแอปนี้เป็นเจ้าของเว็บ ถ้าไม่มี แอปจะเปิดแบบมีแถบ URL
+- **กุญแจเซ็นแอป** `android/android.keystore` + `android/keystore.properties` ไม่ได้อยู่ใน git — สำรองไว้ให้ดี ถ้าหายจะออกอัปเดตแอปเดิมไม่ได้
+
+สร้าง APK ใหม่ (ต้องมี JDK 17 + Android SDK; ดู `~/.bubblewrap/config.json`):
+
+```bash
+cd android && npm install
+export BUBBLEWRAP_KEYSTORE_PASSWORD=$(sed -n 's/^storePassword=//p' keystore.properties)
+export BUBBLEWRAP_KEY_PASSWORD=$BUBBLEWRAP_KEYSTORE_PASSWORD
+npx bubblewrap build --skipPwaValidation
+```
+
+ได้ไฟล์ `app-release-signed.apk` แล้วอัปโหลดเป็น GitHub Release ชื่อไฟล์ `print-flow.apk`
+(เพิ่ม `appVersionCode` ใน `twa-manifest.json` ทุกครั้งที่ออกเวอร์ชันใหม่)
