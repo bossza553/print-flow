@@ -456,6 +456,14 @@ route('POST', '/jobs/:id/start', async (req, p) => {
   const upd: any[] = must(await sb.from('pf_jobs').update({ status: 'working', worker_id: me.id, machine, updated_at: nowIso() }).eq('id', job.id).eq('status', 'waiting').select('id'));
   if (!upd.length) throw new HttpError(409, 'งานนี้เริ่มไปแล้ว');
   await addEvent(job.id, 'start', job.stage, me.id, machine, null);
+  // plates are consumed from stock when the press starts the job (once per job)
+  if (job.stage === 'print' && job.plates > 0) {
+    const prior: any[] = must(await sb.from('pf_plate_moves').select('id').eq('job_id', job.id).eq('type', 'use').limit(1));
+    if (!prior.length) {
+      const r = await plateMove(job.plates, 'use', me.id, job.id, `งาน #${job.id} ${job.book_title}`);
+      await plateLowCheck(r.qty_after);
+    }
+  }
   return { job: forUser(me)(await getJob(job.id)) };
 });
 
@@ -614,6 +622,90 @@ route('GET', '/paper/:id/moves', async (req, p) => {
   await requireUser(req);
   const rows: any[] = must(await sb.from('pf_paper_moves').select('*, user:pf_users(name), job:pf_jobs(id, book:pf_books(title))').eq('paper_id', p.id).order('id', { ascending: false }).limit(100));
   return { moves: rows.map(({ user, job, ...m }) => ({ ...m, delta: Number(m.delta), qty_after: Number(m.qty_after), user_name: user?.name ?? null, job_title: job?.book?.title ?? null })) };
+});
+
+// --- plate stock (เพลท): one running balance, consumed when the press starts a job ------
+async function plateStock() {
+  const row: any = must(await sb.from('pf_plates').select('qty,min_qty,updated_at').eq('id', 1).maybeSingle());
+  return row ? { qty: Number(row.qty), min_qty: Number(row.min_qty), updated_at: row.updated_at } : { qty: 0, min_qty: 0, updated_at: null };
+}
+async function plateMove(amount: number, type: 'in' | 'use' | 'adjust', userId: number, jobId: number | null, note: string | null) {
+  const res = await sb.rpc('pf_plate_move', { p_amount: amount, p_type: type, p_user_id: userId, p_job_id: jobId, p_note: note });
+  if (res.error) throw new HttpError(500, res.error.message);
+  const row = Array.isArray(res.data) ? res.data[0] : res.data;
+  return { qty_after: Number(row.qty_after), delta: Number(row.delta) };
+}
+async function plateLowCheck(qtyAfter: number) {
+  const s = await plateStock();
+  if (s.min_qty <= 0 || qtyAfter > s.min_qty) return;
+  notify(adminIds(), '🟧 เพลทใกล้หมด', `เหลือ ${thNum(qtyAfter)} เพลท (ขั้นต่ำ ${thNum(s.min_qty)})`, '#paper', { alarm: false, tag: 'plates-low' });
+}
+route('GET', '/plates', async (req) => {
+  const me = await requireUser(req);
+  if (!seesPlates(me)) throw new HttpError(403, 'เฉพาะผู้ดูแลและช่างพิมพ์');
+  const stock = await plateStock();
+  const rows: any[] = must(await sb.from('pf_plate_moves').select('*, user:pf_users(name), job:pf_jobs(id, book:pf_books(title))').order('id', { ascending: false }).limit(100));
+  return { ...stock, moves: rows.map(({ user, job, ...m }) => ({ ...m, delta: Number(m.delta), qty_after: Number(m.qty_after), user_name: user?.name ?? null, job_title: job?.book?.title ?? null })) };
+});
+route('POST', '/plates/add', async (req) => {
+  const me = await requireAdmin(req);
+  const { amount, note } = await readJson(req);
+  return await plateMove(Math.round(amountOf(amount)), 'in', me.id, null, note || null);
+});
+route('POST', '/plates/adjust', async (req) => {
+  const me = await requireAdmin(req);
+  const { qty, min_qty, note } = await readJson(req);
+  if (min_qty !== undefined && min_qty !== '') {
+    const m = Number(min_qty); if (!isFinite(m) || m < 0) throw new HttpError(400, 'จำนวนขั้นต่ำไม่ถูกต้อง');
+    must(await sb.from('pf_plates').upsert({ id: 1, min_qty: Math.round(m), updated_at: nowIso() }));
+  }
+  if (qty !== undefined && qty !== null && qty !== '') {
+    const n = Number(qty); if (!isFinite(n) || n < 0) throw new HttpError(400, 'จำนวนไม่ถูกต้อง');
+    const r = await plateMove(Math.round(n), 'adjust', me.id, null, note || 'นับสต็อก');
+    await plateLowCheck(r.qty_after);
+  }
+  return await plateStock();
+});
+
+// --- daily log (admin): one Bangkok day of job events + stock moves ---------------------
+route('GET', '/log', async (req, _p, url) => {
+  await requireAdmin(req);
+  let date = url.searchParams.get('date') || '';
+  if (!/^\d{4}-\d{2}-\d{2}$/.test(date)) date = new Date(Date.now() + 7 * 3600e3).toISOString().slice(0, 10);
+  const start = new Date(`${date}T00:00:00+07:00`).toISOString();
+  const end = new Date(new Date(start).getTime() + 86400e3).toISOString();
+  const [ev, pm, lm] = await Promise.all([
+    sb.from('pf_job_events').select('id,type,stage,machine,note,created_at, user:pf_users(name), job:pf_jobs(id,quantity,color,print_pages, book:pf_books(title,code))').gte('created_at', start).lt('created_at', end).order('id'),
+    sb.from('pf_paper_moves').select('id,delta,qty_after,type,note,job_id,created_at, user:pf_users(name), paper:pf_paper(name,unit)').gte('created_at', start).lt('created_at', end).order('id'),
+    sb.from('pf_plate_moves').select('id,delta,qty_after,type,note,job_id,created_at, user:pf_users(name)').gte('created_at', start).lt('created_at', end).order('id'),
+  ]);
+  const events: any[] = must(ev as any), paperMoves: any[] = must(pm as any), plateMoves: any[] = must(lm as any);
+  const items = [
+    ...events.map(e => ({ kind: 'job', id: e.id, type: e.type, stage: e.stage, machine: e.machine, note: e.note, at: e.created_at, user_name: e.user?.name ?? null,
+      job_id: e.job?.id, book_title: e.job?.book?.title ?? null, book_code: e.job?.book?.code ?? null, quantity: e.job?.quantity, color: e.job?.color,
+      plates: e.job?.print_pages ?? null, yok: yokOf(e.job?.print_pages) })),
+    ...paperMoves.map(m => ({ kind: 'paper', id: m.id, type: m.type, delta: Number(m.delta), qty_after: Number(m.qty_after), note: m.note, job_id: m.job_id, at: m.created_at, user_name: m.user?.name ?? null, paper_name: m.paper?.name ?? null, unit: m.paper?.unit ?? '' })),
+    ...plateMoves.map(m => ({ kind: 'plate', id: m.id, type: m.type, delta: Number(m.delta), qty_after: Number(m.qty_after), note: m.note, job_id: m.job_id, at: m.created_at, user_name: m.user?.name ?? null })),
+  ].sort((a, b) => (a.at < b.at ? -1 : a.at > b.at ? 1 : 0));
+  const fin = events.filter(e => e.type === 'finish');
+  const byStage: Record<string, number> = {};
+  for (const e of fin) byStage[e.stage] = (byStage[e.stage] || 0) + 1;
+  const doneEvents = fin.filter(e => e.stage === 'wrap');
+  const paperUsed: Record<string, { name: string; unit: string; qty: number }> = {};
+  for (const m of paperMoves) if (m.type === 'use') { const k = m.paper?.name || '?'; paperUsed[k] ||= { name: k, unit: m.paper?.unit || '', qty: 0 }; paperUsed[k].qty -= Number(m.delta); }
+  const summary = {
+    created: events.filter(e => e.type === 'created').length,
+    started: events.filter(e => e.type === 'start').length,
+    printed: byStage['print'] || 0,
+    done: doneEvents.length,
+    doneBooks: doneEvents.reduce((a, e) => a + Number(e.job?.quantity || 0), 0),
+    cancelled: events.filter(e => e.type === 'cancel').length,
+    byStage,
+    platesUsed: plateMoves.filter(m => m.type === 'use').reduce((a, m) => a - Number(m.delta), 0),
+    platesIn: plateMoves.filter(m => m.type === 'in').reduce((a, m) => a + Number(m.delta), 0),
+    paperUsed: Object.values(paperUsed),
+  };
+  return { date, summary, items };
 });
 
 // --- native app device tokens

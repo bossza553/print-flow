@@ -53,7 +53,7 @@ h1, h2, h3 { margin: 0; }
 }
 .bottomnav a {
   flex: 1; display: flex; flex-direction: column; align-items: center; justify-content: center;
-  gap: 2px; text-decoration: none; color: var(--muted); font-size: 12px; position: relative;
+  gap: 2px; text-decoration: none; color: var(--muted); font-size: 11px; position: relative; min-width: 0;
 }
 .bottomnav a .ic { font-size: 22px; line-height: 1; }
 .bottomnav a.active { color: var(--primary); font-weight: 600; }
@@ -85,8 +85,20 @@ h1, h2, h3 { margin: 0; }
 .badge.done { background: var(--success-soft); color: var(--success); }
 .badge.cancelled { background: var(--danger-soft); color: var(--danger); }
 .badge.color { background: #ede9fe; color: #6d28d9; }
-.badge.plates { background: #ffedd5; color: #c2410c; }
-.badge.yok { background: #ccfbf1; color: #0f766e; }
+.badge.plates-badge { background: #ffedd5; color: #9a3412; font-size: 13px; }
+
+/* unit chips: เพลท (press side) / ยก (after the press) — meant to be read from across the room */
+.unit { display: inline-flex; align-items: baseline; gap: 5px; padding: 6px 12px; border-radius: 12px; font-weight: 700; font-size: 14px; white-space: nowrap; flex: 0 0 auto; line-height: 1; }
+.unit b { font-size: 26px; font-weight: 900; }
+.unit .eq { font-size: 12px; font-weight: 600; opacity: .75; margin-left: 2px; }
+.unit.big { width: 100%; justify-content: center; padding: 14px 18px; font-size: 20px; border-radius: 16px; margin: 10px 0; }
+.unit.big b { font-size: 44px; }
+.unit.plates { background: #ffedd5; color: #9a3412; border: 2px solid #fb923c; }
+.unit.yok { background: #ccfbf1; color: #115e59; border: 2px solid #2dd4bf; }
+.stock-n { font-size: 34px; font-weight: 900; line-height: 1.1; }
+.stock-plates { border: 2px solid #fdba74; }
+.timeline.log li .t { display: inline-block; min-width: 42px; font-weight: 700; color: var(--muted); font-size: 13px; }
+.timeline.log li.tap { cursor: pointer; }
 
 /* buttons */
 .btn {
@@ -192,8 +204,10 @@ h1, h2, h3 { margin: 0; }
           --primary-soft: #1e3a8a; --success-soft: #14532d; --warn-soft: #78350f; --danger-soft: #7f1d1d; }
   .field input, .field select, .field textarea, .sel, .qty, .note-line, .search { background: #0f172a; color: var(--text); border-color: var(--line); }
   .badge.color { background: #4c1d95; color: #ddd6fe; }
-  .badge.plates { background: #7c2d12; color: #fed7aa; }
-  .badge.yok { background: #134e4a; color: #99f6e4; }
+  .badge.plates-badge { background: #7c2d12; color: #fed7aa; }
+  .unit.plates { background: #431407; color: #fed7aa; border-color: #c2410c; }
+  .unit.yok { background: #042f2e; color: #99f6e4; border-color: #0f766e; }
+  .stock-plates { border-color: #9a3412; }
   .badge.waiting { color: #fcd34d; } .badge.working { color: #93c5fd; } .badge.done { color: #86efac; } .badge.cancelled { color: #fca5a5; }
   .btn.secondary { color: #bfdbfe; } .btn.danger { color: #fecaca; }
   .toast { background: #334155; }

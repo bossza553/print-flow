@@ -41,6 +41,7 @@
   const stageIndex = (k) => S.meta?.stages.findIndex(s => s.key === k) ?? -1;
   const roleName = (r) => S.meta?.roles[r] || r;
   const statusName = { waiting: 'รอคิว', working: 'กำลังทำ', done: 'เสร็จแล้ว', cancelled: 'ยกเลิก' };
+  const EV_NAME = { created: 'ส่งงานเข้าสายการผลิต', start: 'เริ่มทำ', finish: 'ทำเสร็จ ส่งต่อ', cancel: 'ยกเลิกงาน' };
   const qtyFmt = (n) => Number(n || 0).toLocaleString('th-TH', { maximumFractionDigits: 2 });
 
   // ---- printing plates (เพลท) vs ยก -------------------------------------
@@ -51,15 +52,17 @@
   const seesPlates = () => S.user && (S.user.role === 'admin' || S.user.role === 'printer');
   // true once the job has left the press (fold onwards, or done)
   const printed = (j) => j.status === 'done' || stageIndex(j.stage) > stageIndex('print');
-  // badge(s) describing the job size in the unit this user should see
-  function unitBadge(j) {
+  // The big เพลท / ยก chip. Admin and the press see plates until the job leaves the press;
+  // from พับ onward everyone, admin included, sees ยก only.
+  function unitChip(j, big = false) {
     const yok = j.yok ?? yokOf(j.plates);
     if (yok == null) return '';
-    if (seesPlates() && j.plates != null) {
-      if (!printed(j)) return `<span class="badge plates">${num(j.plates)} เพลท</span>`;
-      return `<span class="badge yok">${yokFmt(yok)} ยก</span><span class="badge plates">${num(j.plates)} เพลท</span>`;
+    const cls = `unit${big ? ' big' : ''}`;
+    if (!printed(j) && seesPlates() && j.plates != null) {
+      const eq = S.user.role === 'admin' ? `<span class="eq">= ${yokFmt(yok)} ยก</span>` : '';
+      return `<span class="${cls} plates"><b>${num(j.plates)}</b> เพลท${eq}</span>`;
     }
-    return `<span class="badge yok">${yokFmt(yok)} ยก</span>`;
+    return `<span class="${cls} yok"><b>${yokFmt(yok)}</b> ยก</span>`;
   }
 
   function toast(msg, type = '') {
@@ -178,14 +181,15 @@
     { hash: 'board', label: 'งาน', ic: '📋' },
     { hash: 'books', label: 'หนังสือ', ic: '📚' },
     { hash: 'basket', label: 'ตะกร้า', ic: '🧺' },
-    { hash: 'paper', label: 'กระดาษ', ic: '📄' },
+    { hash: 'paper', label: 'สต็อก', ic: '📦' },
+    { hash: 'log', label: 'บันทึก', ic: '📅' },
     { hash: 'users', label: 'พนักงาน', ic: '👷' },
     { hash: 'settings', label: 'ตั้งค่า', ic: '⚙️' },
   ];
   const WORKER_TABS = [
     { hash: 'queue', label: 'งานของฉัน', ic: '🛠️' },
     { hash: 'board', label: 'ภาพรวม', ic: '📋' },
-    { hash: 'paper', label: 'กระดาษ', ic: '📄' },
+    { hash: 'paper', label: 'สต็อก', ic: '📦' },
     { hash: 'settings', label: 'ตั้งค่า', ic: '⚙️' },
   ];
 
@@ -222,12 +226,14 @@
           <div class="title">${esc(j.book_title)}</div>
           <span class="badge ${j.status}">${statusName[j.status]}</span>
         </div>
-        <div class="row wrap" style="margin-top:6px">
-          <span class="badge color">${esc(j.color)}</span>
-          <span class="badge">${num(j.quantity)} เล่ม</span>
-          ${unitBadge(j)}
-          ${showStage ? `<span class="badge">${esc(stageName(j.stage))}</span>` : ''}
-          ${j.machine ? `<span class="badge">เครื่อง ${esc(j.machine)}</span>` : ''}
+        <div class="row between" style="margin-top:8px;align-items:center">
+          <div class="row wrap" style="gap:6px">
+            <span class="badge color">${esc(j.color)}</span>
+            <span class="badge">${num(j.quantity)} เล่ม</span>
+            ${showStage ? `<span class="badge">${esc(stageName(j.stage))}</span>` : ''}
+            ${j.machine ? `<span class="badge">เครื่อง ${esc(j.machine)}</span>` : ''}
+          </div>
+          ${unitChip(j)}
         </div>
         <div class="meta">
           ${j.book_code ? `รหัส ${esc(j.book_code)} · ` : ''}#${j.id} · ${ago(j.updated_at)}
@@ -304,9 +310,10 @@
   views.board = {
     filter: 'active',
     async load() {
-      const [jobs, sum, paper] = await Promise.all([api('GET', '/api/jobs?limit=300'), api('GET', '/api/summary'),
-        S.user.role === 'admin' ? api('GET', '/api/paper').catch(() => ({ papers: [] })) : Promise.resolve({ papers: [] })]);
-      return { jobs: jobs.jobs, sum, papers: paper.papers };
+      const [jobs, sum, paper, plates] = await Promise.all([api('GET', '/api/jobs?limit=300'), api('GET', '/api/summary'),
+        S.user.role === 'admin' ? api('GET', '/api/paper').catch(() => ({ papers: [] })) : Promise.resolve({ papers: [] }),
+        seesPlates() ? api('GET', '/api/plates').catch(() => null) : Promise.resolve(null)]);
+      return { jobs: jobs.jobs, sum, papers: paper.papers, plates };
     },
     render(d) {
       const f = views.board.filter;
@@ -327,10 +334,11 @@
             ? `<a class="tile tap" href="#done" style="text-decoration:none;color:inherit;border:2px solid var(--success-soft)"><div class="n" style="color:var(--success)">${d.sum.doneToday}</div><div class="l">เข้าคลังวันนี้ ›</div></a>`
             : `<div class="tile"><div class="n">${d.sum.doneToday}</div><div class="l">เข้าคลังวันนี้</div></div>`}
         </div>
-        ${S.user.role === 'admin' && d.papers.length ? `
+        ${(S.user.role === 'admin' && d.papers.length) || d.plates ? `
         <a class="card tap" href="#paper" style="display:block;text-decoration:none;color:inherit">
-          <div class="row between"><div class="title" style="font-size:15px">📄 กระดาษคงเหลือ</div><span class="muted small">ดูทั้งหมด ›</span></div>
+          <div class="row between"><div class="title" style="font-size:15px">📦 สต็อกคงเหลือ</div><span class="muted small">ดูทั้งหมด ›</span></div>
           <div class="row wrap" style="margin-top:6px;gap:6px">
+            ${d.plates ? `<span class="badge plates-badge">🟧 เพลท <b>${num(d.plates.qty)}</b>${d.plates.min_qty > 0 && d.plates.qty <= d.plates.min_qty ? ' ⚠️' : ''}</span>` : ''}
             ${d.papers.map(p => { const low = p.min_qty > 0 && p.qty <= p.min_qty; return `<span class="badge" style="${low ? 'background:var(--danger-soft);color:var(--danger)' : ''}">${esc(p.name)}: <b>${qtyFmt(p.qty)}</b> ${esc(p.unit)}${low ? ' ⚠️' : ''}</span>`; }).join('')}
           </div>
         </a>` : ''}
@@ -349,16 +357,42 @@
     },
   };
 
-  // ---- paper stock (everyone sees; admin manages; workers record usage)
+  // ---- stock: plates (admin + press) and paper (everyone sees; admin manages; workers record usage)
   views.paper = {
     async load() {
-      const [p, j] = await Promise.all([api('GET', '/api/paper'), api('GET', '/api/jobs?active=1&limit=100' + (S.user.role === 'admin' ? '' : '&mine=1'))]);
-      return { papers: p.papers, jobs: j.jobs };
+      const [p, j, pl] = await Promise.all([
+        api('GET', '/api/paper'),
+        api('GET', '/api/jobs?active=1&limit=100' + (S.user.role === 'admin' ? '' : '&mine=1')),
+        seesPlates() ? api('GET', '/api/plates').catch(() => null) : Promise.resolve(null),
+      ]);
+      return { papers: p.papers, jobs: j.jobs, plates: pl };
     },
     render(d) {
       const isAdmin = S.user.role === 'admin';
       const low = d.papers.filter(p => p.min_qty > 0 && p.qty <= p.min_qty);
-      return shell('กระดาษคงเหลือ', `${d.papers.length} ชนิด${low.length ? ` · ใกล้หมด ${low.length}` : ''}`, `
+      const pl = d.plates;
+      const plLow = pl && pl.min_qty > 0 && pl.qty <= pl.min_qty;
+      return shell('สต็อก', `กระดาษ ${d.papers.length} ชนิด${low.length ? ` · ใกล้หมด ${low.length}` : ''}${pl ? ` · เพลท ${num(pl.qty)}` : ''}`, `
+        ${pl ? `
+        <div class="section-title" style="margin-top:4px">เพลท</div>
+        <div class="card stock-plates">
+          <div class="row between">
+            <div class="grow">
+              <div class="title">🟧 เพลทคงเหลือ</div>
+              <div class="meta">${pl.min_qty > 0 ? `แจ้งเตือนเมื่อต่ำกว่า ${num(pl.min_qty)} · ` : ''}${pl.updated_at ? `อัปเดต ${ago(pl.updated_at)}` : 'ยังไม่เคยบันทึก'}</div>
+            </div>
+            <div style="text-align:right">
+              <div class="stock-n" style="color:${plLow || pl.qty <= 0 ? 'var(--danger)' : '#c2410c'}">${num(pl.qty)}</div>
+              <div class="small muted">เพลท${plLow ? ' · <b style="color:var(--danger)">ใกล้หมด</b>' : ''}</div>
+            </div>
+          </div>
+          <div class="small muted" style="margin-top:6px">หักออกอัตโนมัติตามจำนวนเพลทของงาน เมื่อช่างพิมพ์กด "เริ่มทำ"</div>
+          <div class="actions">
+            ${isAdmin ? '<button class="btn sm success" id="plateAdd">＋ รับเพลทเข้า</button><button class="btn sm secondary" id="plateAdjust">นับใหม่ / ตั้งค่า</button>' : ''}
+            <button class="btn sm ghost" id="plateHist">ประวัติ</button>
+          </div>
+        </div>
+        <div class="section-title">กระดาษ</div>` : ''}
         ${isAdmin ? '<button class="btn" id="addPaper">＋ เพิ่มชนิดกระดาษ</button><div style="height:10px"></div>' : ''}
         ${d.papers.length ? d.papers.map(p => {
           const isLow = p.min_qty > 0 && p.qty <= p.min_qty;
@@ -385,6 +419,9 @@
     mount(el, d) {
       const byId = (id) => d.papers.find(p => p.id === Number(id));
       el.querySelector('#addPaper')?.addEventListener('click', () => paperForm(null));
+      el.querySelector('#plateAdd')?.addEventListener('click', () => plateAddSheet(d.plates));
+      el.querySelector('#plateAdjust')?.addEventListener('click', () => plateAdjustSheet(d.plates));
+      el.querySelector('#plateHist')?.addEventListener('click', () => plateHistory(d.plates));
       el.querySelectorAll('[data-edit]').forEach(b => b.onclick = () => paperForm(byId(b.dataset.edit)));
       el.querySelectorAll('[data-add]').forEach(b => b.onclick = () => paperAddSheet(byId(b.dataset.add)));
       el.querySelectorAll('[data-use]').forEach(b => b.onclick = () => paperUseSheet(byId(b.dataset.use), d.jobs, null));
@@ -484,6 +521,105 @@
       </ul>`);
   }
 
+  // ---- plate stock sheets (admin)
+  function plateAddSheet(pl) {
+    openSheet(`
+      <h2>＋ รับเพลทเข้า</h2>
+      <p class="muted small">คงเหลือตอนนี้ <b>${num(pl.qty)} เพลท</b></p>
+      <form id="plAdd">
+        <div class="field"><label>จำนวนที่รับเข้า (เพลท) *</label><input name="amount" type="number" inputmode="numeric" min="1" required autofocus class="pin-input" style="letter-spacing:0"></div>
+        <div class="field"><label>หมายเหตุ (เช่น ใบส่งของ / ร้านที่ซื้อ)</label><input name="note"></div>
+        <button class="btn big success" type="submit">บันทึกรับเข้า</button>
+      </form>`, (el) => {
+      el.querySelector('#plAdd').onsubmit = async (e) => {
+        e.preventDefault();
+        const fd = Object.fromEntries(new FormData(e.target));
+        try { const r = await api('POST', '/api/plates/add', fd); closeSheet(); toast(`รับเข้าแล้ว เหลือ ${num(r.qty_after)} เพลท`, 'success'); render(true); }
+        catch (err) { toast(err.message, 'error'); }
+      };
+    });
+  }
+  function plateAdjustSheet(pl) {
+    openSheet(`
+      <h2>นับเพลทใหม่ / ตั้งค่า</h2>
+      <form id="plAdj">
+        <div class="field"><label>จำนวนที่มีจริงตอนนี้ (เพลท) — เว้นว่างถ้าไม่เปลี่ยน</label><input name="qty" type="number" inputmode="numeric" min="0" placeholder="ปัจจุบัน ${num(pl.qty)}"></div>
+        <div class="field"><label>แจ้งเตือนผู้ดูแลเมื่อเหลือไม่ถึง (เพลท)</label><input name="min_qty" type="number" inputmode="numeric" min="0" value="${esc(pl.min_qty ?? 0)}"></div>
+        <div class="field"><label>หมายเหตุ</label><input name="note" placeholder="เช่น นับสต็อกสิ้นเดือน"></div>
+        <button class="btn big" type="submit">บันทึก</button>
+      </form>`, (el) => {
+      el.querySelector('#plAdj').onsubmit = async (e) => {
+        e.preventDefault();
+        const fd = Object.fromEntries(new FormData(e.target));
+        try { await api('POST', '/api/plates/adjust', fd); closeSheet(); toast('บันทึกแล้ว', 'success'); render(true); }
+        catch (err) { toast(err.message, 'error'); }
+      };
+    });
+  }
+  function plateHistory(pl) {
+    const typeName = { in: '📥 รับเข้า', use: '🖨️ ใช้กับงาน', adjust: '📝 นับสต็อก' };
+    openSheet(`
+      <h2>ประวัติเพลท</h2>
+      <p class="muted small">คงเหลือ ${num(pl.qty)} เพลท · แสดง ${pl.moves.length} รายการล่าสุด</p>
+      <ul class="timeline">
+        ${pl.moves.map(m => `<li><b>${typeName[m.type] || m.type}</b> ${m.delta > 0 ? '+' : ''}${num(m.delta)} เพลท → เหลือ ${num(m.qty_after)}
+          ${m.job_title ? `<div class="small">งาน #${m.job_id} ${esc(m.job_title)}</div>` : ''}${m.note ? `<div class="small">📝 ${esc(m.note)}</div>` : ''}
+          <div class="when">${esc(m.user_name || '')} · ${fmtTime(m.created_at)}</div></li>`).join('') || '<li class="muted">ยังไม่มีรายการ</li>'}
+      </ul>`);
+  }
+
+  // ---- daily log (admin): everything that happened on one day, Bangkok time
+  const bkkToday = () => new Date(Date.now() + 7 * 3600e3).toISOString().slice(0, 10);
+  const shiftDay = (d, n) => { const t = new Date(d + 'T00:00:00Z'); t.setUTCDate(t.getUTCDate() + n); return t.toISOString().slice(0, 10); };
+  const thDate = (d) => new Date(d + 'T00:00:00Z').toLocaleDateString('th-TH', { timeZone: 'UTC', weekday: 'long', day: 'numeric', month: 'long', year: 'numeric' });
+  views.log = {
+    date: null,
+    async load() { views.log.date ||= bkkToday(); return api('GET', '/api/log?date=' + views.log.date); },
+    render(d) {
+      const s = d.summary;
+      const isToday = d.date === bkkToday();
+      const typeName = { in: 'รับเข้า', use: 'ใช้', adjust: 'นับสต็อก' };
+      const line = (it) => {
+        const t = parseDate(it.at)?.toLocaleTimeString('th-TH', { hour: '2-digit', minute: '2-digit' }) || '';
+        if (it.kind === 'job') {
+          const ic = { created: '🧺', start: '▶️', finish: '✅', cancel: '🚫' }[it.type] || '•';
+          const unit = it.plates ? (stageIndex(it.stage) <= stageIndex('print') ? ` · <b>${num(it.plates)} เพลท</b>` : ` · <b>${yokFmt(it.yok)} ยก</b>`) : '';
+          return `<li data-job="${it.job_id}" class="tap"><span class="t">${t}</span> ${ic} <b>${EV_NAME[it.type] || it.type}</b> · ${esc(stageName(it.stage))}${it.machine ? ` (เครื่อง ${esc(it.machine)})` : ''}
+            <div>${esc(it.book_title || '')} · ${num(it.quantity)} เล่ม (${esc(it.color)})${unit}</div>
+            ${it.note ? `<div class="small">📝 ${esc(it.note)}</div>` : ''}<div class="when">${esc(it.user_name || '')} · งาน #${it.job_id}</div></li>`;
+        }
+        if (it.kind === 'paper') return `<li><span class="t">${t}</span> 📄 <b>กระดาษ ${typeName[it.type] || it.type}</b> · ${esc(it.paper_name)} ${it.delta > 0 ? '+' : ''}${qtyFmt(it.delta)} ${esc(it.unit)} → เหลือ ${qtyFmt(it.qty_after)}${it.note ? `<div class="small">📝 ${esc(it.note)}</div>` : ''}<div class="when">${esc(it.user_name || '')}${it.job_id ? ` · งาน #${it.job_id}` : ''}</div></li>`;
+        return `<li><span class="t">${t}</span> 🟧 <b>เพลท ${typeName[it.type] || it.type}</b> ${it.delta > 0 ? '+' : ''}${num(it.delta)} → เหลือ ${num(it.qty_after)}${it.note ? `<div class="small">📝 ${esc(it.note)}</div>` : ''}<div class="when">${esc(it.user_name || '')}${it.job_id ? ` · งาน #${it.job_id}` : ''}</div></li>`;
+      };
+      return shell('บันทึกประจำวัน', thDate(d.date), `
+        <div class="row" style="margin-bottom:10px">
+          <button class="btn sm secondary" id="logPrev">‹</button>
+          <input type="date" id="logDate" class="sel grow" value="${d.date}" max="${bkkToday()}">
+          <button class="btn sm secondary" id="logNext" ${isToday ? 'disabled' : ''}>›</button>
+          ${isToday ? '' : '<button class="btn sm ghost" id="logToday">วันนี้</button>'}
+        </div>
+        <div class="tiles">
+          <div class="tile"><div class="n">${s.created}</div><div class="l">ส่งงานเข้า</div></div>
+          <div class="tile"><div class="n">${s.printed}</div><div class="l">พิมพ์เสร็จ</div></div>
+          <div class="tile"><div class="n" style="color:var(--success)">${s.done}</div><div class="l">เข้าคลัง · ${num(s.doneBooks)} เล่ม</div></div>
+          <div class="tile"><div class="n" style="color:#c2410c">${num(s.platesUsed)}</div><div class="l">เพลทที่ใช้</div></div>
+          <div class="tile"><div class="n">${s.byStage.cut || 0}</div><div class="l">ตัดกระดาษเสร็จ</div></div>
+          <div class="tile"><div class="n">${(s.byStage.fold || 0) + (s.byStage.bind || 0)}</div><div class="l">พับ + เก็บเล่มเสร็จ</div></div>
+        </div>
+        ${s.paperUsed.length ? `<div class="card"><div class="title" style="font-size:15px">📄 กระดาษที่ใช้</div><div class="row wrap" style="margin-top:6px;gap:6px">${s.paperUsed.map(p => `<span class="badge">${esc(p.name)}: <b>${qtyFmt(p.qty)}</b> ${esc(p.unit)}</span>`).join('')}</div></div>` : ''}
+        <div class="section-title">เหตุการณ์ (${d.items.length})</div>
+        ${d.items.length ? `<ul class="timeline log">${d.items.map(line).join('')}</ul>` : '<div class="empty">ไม่มีเหตุการณ์ในวันนี้</div>'}
+      `);
+    },
+    mount(el, d) {
+      const go = (date) => { views.log.date = date; render(true); };
+      el.querySelector('#logPrev').onclick = () => go(shiftDay(d.date, -1));
+      el.querySelector('#logNext').onclick = () => go(shiftDay(d.date, 1));
+      el.querySelector('#logToday')?.addEventListener('click', () => go(bkkToday()));
+      el.querySelector('#logDate').onchange = (e) => { if (e.target.value) go(e.target.value); };
+    },
+  };
+
   // ---- completed books (admin): everything that reached the warehouse
   views.done = {
     q: '',
@@ -522,7 +658,7 @@
               <div class="row wrap" style="margin-top:6px">
                 <span class="badge color">${esc(j.color)}</span>
                 <span class="badge">${num(j.quantity)} เล่ม</span>
-                ${unitBadge(j)}
+                ${unitChip(j)}
                 ${j.machine ? `<span class="badge">เครื่อง ${esc(j.machine)}</span>` : ''}
               </div>
               <div class="meta">${j.book_code ? `รหัส ${esc(j.book_code)} · ` : ''}#${j.id} · เสร็จ ${fmtTime(j.finished_at)} · เริ่ม ${fmtTime(j.created_at)}</div>
@@ -620,12 +756,17 @@
 
   // ---- basket (admin)
   views.basket = {
-    async load() { try { return await api('GET', '/api/paper'); } catch { return { papers: [] }; } },
+    async load() {
+      const [p, pl] = await Promise.all([api('GET', '/api/paper').catch(() => ({ papers: [] })), api('GET', '/api/plates').catch(() => null)]);
+      return { papers: p.papers, plates: pl };
+    },
     render(d) {
       const papers = d?.papers || [];
       const paperOpts = (sel) => `<option value="">— ไม่ระบุกระดาษ —</option>` + papers.map(p => `<option value="${p.id}" ${Number(sel) === p.id ? 'selected' : ''}>${esc(p.name)} (เหลือ ${qtyFmt(p.qty)} ${esc(p.unit)})</option>`).join('');
       const total = S.basket.reduce((a, b) => a + Number(b.quantity || 0), 0);
-      return shell('ตะกร้างานพิมพ์', `${S.basket.length} รายการ · ${num(total)} เล่ม`, `
+      const totalPlates = S.basket.reduce((a, b) => a + (Number(b.plates) || 0), 0);
+      const pl = d?.plates;
+      return shell('ตะกร้างานพิมพ์', `${S.basket.length} รายการ · ${num(total)} เล่ม${totalPlates ? ` · ${num(totalPlates)} เพลท` : ''}`, `
         ${S.basket.length === 0 ? '<div class="empty">ตะกร้าว่าง<br><a href="#books">ไปเลือกหนังสือ</a></div>' : ''}
         ${S.basket.map((it, i) => `
           <div class="card">
@@ -652,6 +793,9 @@
             ${(() => { const pp = papers.find(p => p.id === Number(it.paper_id)); return pp && Number(it.paper_qty) > pp.qty ? `<div class="small" style="color:var(--danger);margin-top:4px">⚠️ กระดาษในสต็อกเหลือ ${qtyFmt(pp.qty)} ${esc(pp.unit)} ไม่พอตามแผน</div>` : ''; })()}
             <input class="note-line" placeholder="หมายเหตุถึงช่าง (ถ้ามี)" data-note="${i}" value="${esc(it.note)}">
           </div>`).join('')}
+        ${S.basket.length && pl && totalPlates ? (totalPlates > pl.qty
+          ? `<div class="card" style="background:var(--danger-soft);color:var(--danger)">⚠️ งานในตะกร้าต้องใช้ <b>${num(totalPlates)} เพลท</b> แต่สต็อกเหลือ <b>${num(pl.qty)}</b> — ส่งงานได้ แต่ควรรับเพลทเข้าก่อนถึงคิวพิมพ์</div>`
+          : `<div class="small muted" style="margin:4px 0 8px">🟧 ใช้ ${num(totalPlates)} เพลท จากสต็อก ${num(pl.qty)} (จะเหลือ ${num(pl.qty - totalPlates)})</div>`) : ''}
         ${S.basket.length ? `
           <div class="field" style="margin-top:14px"><label>หมายเหตุรวมของออเดอร์นี้</label><input id="orderNote" placeholder="เช่น ด่วน ส่งลูกค้าศุกร์นี้"></div>
           <button class="btn big success" id="submitOrder">🚀 ส่งงานเข้าสายการผลิต</button>
@@ -859,14 +1003,15 @@
       const cls = j.status === 'done' ? 'past' : i < idx ? 'past' : i === idx ? 'now' : '';
       return `<div class="step ${cls}"><div class="num">${i < idx || j.status === 'done' ? '✓' : i + 1}</div>${esc(s.name)}</div>`;
     }).join('<span class="arrow">›</span>');
-    const evName = { created: 'ส่งงานเข้าสายการผลิต', start: 'เริ่มทำ', finish: 'ทำเสร็จ ส่งต่อ', cancel: 'ยกเลิกงาน' };
+    const evName = EV_NAME;
     openSheet(`
       <div class="row between"><h2>${esc(j.book_title)}</h2><span class="badge ${j.status}">${statusName[j.status]}</span></div>
-      <div class="row wrap" style="margin-bottom:10px">
-        <span class="badge color">${esc(j.color)}</span><span class="badge">${num(j.quantity)} เล่ม</span>${unitBadge(j)}
+      <div class="row wrap" style="margin-bottom:6px">
+        <span class="badge color">${esc(j.color)}</span><span class="badge">${num(j.quantity)} เล่ม</span>
         ${j.book_code ? `<span class="badge">รหัส ${esc(j.book_code)}</span>` : ''}
         ${j.machine ? `<span class="badge">เครื่อง ${esc(j.machine)}</span>` : ''}<span class="badge">งาน #${j.id}</span>
       </div>
+      ${unitChip(j, true)}
       ${j.note ? `<div class="card" style="background:var(--warn-soft);color:var(--warn)">📝 ${esc(j.note)}</div>` : ''}
       ${j.paper_name ? `<div class="card" style="background:var(--primary-soft)"><b>📄 กระดาษ:</b> ${esc(j.paper_name)}${j.paper_qty ? ` × <b>${qtyFmt(j.paper_qty)} ${esc(j.paper_unit || '')}</b>` : ''}${j.paper_used != null ? `<div class="small">ใช้จริง ${qtyFmt(j.paper_used)} ${esc(j.paper_unit || '')} (ตัดสต็อกแล้ว)</div>` : ''}</div>` : ''}
       <div class="flow">${flow}</div>
@@ -975,7 +1120,7 @@
     const [name, arg] = hash.split('/');
     if (name === 'job' && arg) { openJob(arg); return; }
     let view = views[name] || views[S.user.role === 'admin' ? 'board' : 'queue'];
-    if (S.user.role !== 'admin' && ['books', 'basket', 'users', 'qrcards', 'done'].includes(name)) view = views.queue;
+    if (S.user.role !== 'admin' && ['books', 'basket', 'users', 'qrcards', 'done', 'log'].includes(name)) view = views.queue;
     const seq = ++renderSeq;
     S.view = view;
     try {
