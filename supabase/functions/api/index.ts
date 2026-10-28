@@ -26,6 +26,17 @@ const MACHINES = [
 const stageByKey = (k: string) => STAGES.find(s => s.key === k);
 const nextStage = (k: string) => { const i = STAGES.findIndex(s => s.key === k); return i < 0 || i >= STAGES.length - 1 ? null : STAGES[i + 1]; };
 const machineColor = (m: string | null) => MACHINES.find(x => x.key === m)?.color || null;
+// Printing pages (หน้าพิมพ์) are counted by admin and the press operators; everyone after the
+// press works in ยก. PAGES_PER_YOK printing pages make one ยก.
+const PAGES_PER_YOK = 2;
+const yokOf = (pages: number | null | undefined) => pages == null ? null : Math.round((pages / PAGES_PER_YOK) * 10) / 10;
+const yokFmt = (n: number) => Number(n).toLocaleString('th-TH', { maximumFractionDigits: 1 });
+const seesPages = (user: any) => user.role === 'admin' || user.role === 'printer';
+// Unit text for a notification going to the people working on `stageKey`.
+function unitText(job: any, stageKey: string) {
+  if (!job.print_pages) return '';
+  return stageKey === 'print' ? ` · ${Number(job.print_pages).toLocaleString('th-TH')} หน้าพิมพ์` : ` · ${yokFmt(yokOf(job.print_pages)!)} ยก`;
+}
 function canWork(user: any, job: any) {
   if (user.role === 'admin') return true;
   const stage = stageByKey(job.stage);
@@ -81,8 +92,11 @@ function flat(j: any) {
     ...rest, book_title: book?.title, book_code: book?.code ?? null, book_pages: book?.pages ?? null, worker_name: worker?.name ?? null,
     paper_name: paper?.name ?? null, paper_unit: paper?.unit ?? null,
     paper_qty: rest.paper_qty == null ? null : Number(rest.paper_qty), paper_used: rest.paper_used == null ? null : Number(rest.paper_used),
+    print_pages: rest.print_pages == null ? null : Number(rest.print_pages), yok: yokOf(rest.print_pages),
   };
 }
+// Only admin and press operators get the raw printing-page count; others only see ยก.
+const forUser = (user: any) => (j: any) => seesPages(user) ? j : { ...j, print_pages: null };
 async function getJob(id: string | number) {
   const j = must(await sb.from('pf_jobs').select(JOB_SELECT).eq('id', id).maybeSingle());
   if (!j) throw new HttpError(404, 'ไม่พบงาน');
@@ -229,7 +243,7 @@ function route(method: string, pattern: string, handler: Handler) {
   routes.push({ method, re, keys, handler });
 }
 
-route('GET', '/meta', async () => { await getPush(); return { stages: STAGES, roles: ROLES, colors: COLORS, machines: MACHINES, pushKey: vapidPublicRaw }; });
+route('GET', '/meta', async () => { await getPush(); return { stages: STAGES, roles: ROLES, colors: COLORS, machines: MACHINES, pagesPerYok: PAGES_PER_YOK, pushKey: vapidPublicRaw }; });
 
 route('POST', '/login', async (req) => {
   const { pin } = await readJson(req);
@@ -333,6 +347,13 @@ route('GET', '/books', async (req) => {
   await requireUser(req);
   return { books: must(await sb.from('pf_books').select('*').eq('active', true).order('title')) };
 });
+// whole number of printing pages, or null when blank; rejects garbage
+function printPagesOf(v: unknown): number | null {
+  if (v === undefined || v === null || v === '') return null;
+  const n = Number(v);
+  if (!isFinite(n) || n < 0) throw new HttpError(400, 'จำนวนหน้าพิมพ์ไม่ถูกต้อง');
+  return n > 0 ? Math.round(n) : null;
+}
 function validateBook(body: any) {
   const title = String(body.title || '').trim();
   if (!title) throw new HttpError(400, 'กรุณาใส่ชื่อหนังสือ');
@@ -341,6 +362,7 @@ function validateBook(body: any) {
   return {
     title, code: String(body.code || '').trim() || null,
     pages: body.pages ? Number(body.pages) : null, color,
+    print_pages: printPagesOf(body.print_pages),
     default_qty: Math.max(1, Number(body.default_qty) || 1000),
     note: String(body.note || '').trim() || null,
   };
@@ -382,6 +404,8 @@ route('POST', '/orders', async (req) => {
       color: COLORS.includes(it.color) ? it.color : book.color,
       note: it.note || null, stage: 'cut', status: 'waiting', title: book.title,
       paper_id: paperId, paper_qty: paperQty,
+      // printing pages chosen for this run; falls back to the book's usual count
+      print_pages: it.print_pages === undefined ? (book.print_pages ?? null) : printPagesOf(it.print_pages),
     };
   });
   const order: any = must(await sb.from('pf_orders').insert({ created_by: me.id, note: body.note || null }).select('id').single());
@@ -411,12 +435,12 @@ route('GET', '/jobs', async (req, _p, url) => {
   const rows: any[] = must(await q.order(orderCol, { ascending: false }).order('id', { ascending: false }).limit(limit));
   const rank: Record<string, number> = { working: 0, waiting: 1 };
   rows.sort((a, b) => (rank[a.status] ?? 2) - (rank[b.status] ?? 2));
-  return { jobs: rows.map(flat) };
+  return { jobs: rows.map(flat).map(forUser(me)) };
 });
 
 route('GET', '/jobs/:id', async (req, p) => {
-  await requireUser(req);
-  const job = await getJob(p.id);
+  const me = await requireUser(req);
+  const job = forUser(me)(await getJob(p.id));
   const events: any[] = must(await sb.from('pf_job_events').select('*, user:pf_users(name)').eq('job_id', p.id).order('id'));
   return { job, events: events.map(({ user, ...e }) => ({ ...e, user_name: user?.name ?? null })) };
 });
@@ -430,7 +454,7 @@ route('POST', '/jobs/:id/start', async (req, p) => {
   const upd: any[] = must(await sb.from('pf_jobs').update({ status: 'working', worker_id: me.id, machine, updated_at: nowIso() }).eq('id', job.id).eq('status', 'waiting').select('id'));
   if (!upd.length) throw new HttpError(409, 'งานนี้เริ่มไปแล้ว');
   await addEvent(job.id, 'start', job.stage, me.id, machine, null);
-  return { job: await getJob(job.id) };
+  return { job: forUser(me)(await getJob(job.id)) };
 });
 
 route('POST', '/jobs/:id/finish', async (req, p) => {
@@ -469,11 +493,11 @@ route('POST', '/jobs/:id/finish', async (req, p) => {
     }
   }
   if (!next || next.key === 'done') {
-    notify(adminIds(), `เข้าคลังแล้ว: ${job.book_title}`, `${thNum(job.quantity)} เล่ม เสร็จครบทุกขั้นตอน`, '#board');
+    notify(adminIds(), `เข้าคลังแล้ว: ${job.book_title}`, `${thNum(job.quantity)} เล่ม${unitText(job, 'done')} เสร็จครบทุกขั้นตอน`, '#board');
   } else {
-    notify(usersForStage(next.key, job.color), `งานใหม่: ${job.book_title}`, `${thNum(job.quantity)} เล่ม (${job.color}) มาจาก${stageName} รอ${next.name}`, '#queue', { tag: 'job-' + job.id });
+    notify(usersForStage(next.key, job.color), `งานใหม่: ${job.book_title}`, `${thNum(job.quantity)} เล่ม (${job.color})${unitText(job, next.key)} มาจาก${stageName} รอ${next.name}`, '#queue', { tag: 'job-' + job.id });
   }
-  return { job: await getJob(job.id) };
+  return { job: forUser(me)(await getJob(job.id)) };
 });
 
 route('POST', '/jobs/:id/cancel', async (req, p) => {
@@ -623,7 +647,7 @@ route('POST', '/remind', async (req) => {
     const stage = stageByKey(j.stage)!;
     await notifyUsers(await usersForStage(j.stage, j.color), {
       title: `⏰ งานรอคิวอยู่ ${minutes} นาทีแล้ว!`,
-      body: `${j.book_title} · ${thNum(j.quantity)} เล่ม (${j.color}) รอ${stage.name} — กดเริ่มทำด้วย`,
+      body: `${j.book_title} · ${thNum(j.quantity)} เล่ม (${j.color})${unitText(j, j.stage)} รอ${stage.name} — กดเริ่มทำด้วย`,
       url: '#queue', alarm: true, tag: 'job-' + j.id, ts: Date.now(),
     });
     await sb.from('pf_jobs').update({ reminded_at: nowIso(), remind_count: (j.remind_count || 0) + 1 }).eq('id', j.id);

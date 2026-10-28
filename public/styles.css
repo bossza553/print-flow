@@ -85,6 +85,8 @@ h1, h2, h3 { margin: 0; }
 .badge.done { background: var(--success-soft); color: var(--success); }
 .badge.cancelled { background: var(--danger-soft); color: var(--danger); }
 .badge.color { background: #ede9fe; color: #6d28d9; }
+.badge.pages { background: #ffedd5; color: #c2410c; }
+.badge.yok { background: #ccfbf1; color: #0f766e; }
 
 /* buttons */
 .btn {
@@ -190,6 +192,8 @@ h1, h2, h3 { margin: 0; }
           --primary-soft: #1e3a8a; --success-soft: #14532d; --warn-soft: #78350f; --danger-soft: #7f1d1d; }
   .field input, .field select, .field textarea, .sel, .qty, .note-line, .search { background: #0f172a; color: var(--text); border-color: var(--line); }
   .badge.color { background: #4c1d95; color: #ddd6fe; }
+  .badge.pages { background: #7c2d12; color: #fed7aa; }
+  .badge.yok { background: #134e4a; color: #99f6e4; }
   .badge.waiting { color: #fcd34d; } .badge.working { color: #93c5fd; } .badge.done { color: #86efac; } .badge.cancelled { color: #fca5a5; }
   .btn.secondary { color: #bfdbfe; } .btn.danger { color: #fecaca; }
   .toast { background: #334155; }
