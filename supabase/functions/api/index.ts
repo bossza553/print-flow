@@ -26,16 +26,16 @@ const MACHINES = [
 const stageByKey = (k: string) => STAGES.find(s => s.key === k);
 const nextStage = (k: string) => { const i = STAGES.findIndex(s => s.key === k); return i < 0 || i >= STAGES.length - 1 ? null : STAGES[i + 1]; };
 const machineColor = (m: string | null) => MACHINES.find(x => x.key === m)?.color || null;
-// Printing pages (หน้าพิมพ์) are counted by admin and the press operators; everyone after the
-// press works in ยก. PAGES_PER_YOK printing pages make one ยก.
-const PAGES_PER_YOK = 2;
-const yokOf = (pages: number | null | undefined) => pages == null ? null : Math.round((pages / PAGES_PER_YOK) * 10) / 10;
+// Printing plates (เพลท) are counted by admin and the press operators; everyone after the
+// press works in ยก. PLATES_PER_YOK printing plates make one ยก.
+const PLATES_PER_YOK = 2;
+const yokOf = (pages: number | null | undefined) => pages == null ? null : Math.round((pages / PLATES_PER_YOK) * 10) / 10;
 const yokFmt = (n: number) => Number(n).toLocaleString('th-TH', { maximumFractionDigits: 1 });
-const seesPages = (user: any) => user.role === 'admin' || user.role === 'printer';
+const seesPlates = (user: any) => user.role === 'admin' || user.role === 'printer';
 // Unit text for a notification going to the people working on `stageKey`.
 function unitText(job: any, stageKey: string) {
-  if (!job.print_pages) return '';
-  return stageKey === 'print' ? ` · ${Number(job.print_pages).toLocaleString('th-TH')} หน้าพิมพ์` : ` · ${yokFmt(yokOf(job.print_pages)!)} ยก`;
+  if (!job.plates) return '';
+  return stageKey === 'print' ? ` · ${Number(job.plates).toLocaleString('th-TH')} เพลท` : ` · ${yokFmt(yokOf(job.plates)!)} ยก`;
 }
 function canWork(user: any, job: any) {
   if (user.role === 'admin') return true;
@@ -87,16 +87,17 @@ async function requireAdmin(req: Request) { const u = await requireUser(req); if
 // ---------------------------------------------------------------- jobs helpers
 const JOB_SELECT = '*, book:pf_books(title,code,pages), worker:pf_users(name), paper:pf_paper(name,unit)';
 function flat(j: any) {
-  const { book, worker, paper, ...rest } = j;
+  // DB column is still named print_pages; the API speaks "plates"
+  const { book, worker, paper, print_pages, ...rest } = j;
   return {
     ...rest, book_title: book?.title, book_code: book?.code ?? null, book_pages: book?.pages ?? null, worker_name: worker?.name ?? null,
     paper_name: paper?.name ?? null, paper_unit: paper?.unit ?? null,
     paper_qty: rest.paper_qty == null ? null : Number(rest.paper_qty), paper_used: rest.paper_used == null ? null : Number(rest.paper_used),
-    print_pages: rest.print_pages == null ? null : Number(rest.print_pages), yok: yokOf(rest.print_pages),
+    plates: print_pages == null ? null : Number(print_pages), yok: yokOf(print_pages),
   };
 }
-// Only admin and press operators get the raw printing-page count; others only see ยก.
-const forUser = (user: any) => (j: any) => seesPages(user) ? j : { ...j, print_pages: null };
+// Only admin and press operators get the raw plate count; others only see ยก.
+const forUser = (user: any) => (j: any) => seesPlates(user) ? j : { ...j, plates: null };
 async function getJob(id: string | number) {
   const j = must(await sb.from('pf_jobs').select(JOB_SELECT).eq('id', id).maybeSingle());
   if (!j) throw new HttpError(404, 'ไม่พบงาน');
@@ -243,7 +244,7 @@ function route(method: string, pattern: string, handler: Handler) {
   routes.push({ method, re, keys, handler });
 }
 
-route('GET', '/meta', async () => { await getPush(); return { stages: STAGES, roles: ROLES, colors: COLORS, machines: MACHINES, pagesPerYok: PAGES_PER_YOK, pushKey: vapidPublicRaw }; });
+route('GET', '/meta', async () => { await getPush(); return { stages: STAGES, roles: ROLES, colors: COLORS, machines: MACHINES, platesPerYok: PLATES_PER_YOK, pushKey: vapidPublicRaw }; });
 
 route('POST', '/login', async (req) => {
   const { pin } = await readJson(req);
@@ -345,13 +346,14 @@ h1{font-size:18px;margin:0 0 4px}p.note{margin:0 0 12px;color:#555;font-size:13p
 // --- books
 route('GET', '/books', async (req) => {
   await requireUser(req);
-  return { books: must(await sb.from('pf_books').select('*').eq('active', true).order('title')) };
+  const books: any[] = must(await sb.from('pf_books').select('*').eq('active', true).order('title'));
+  return { books: books.map(({ print_pages, ...b }) => ({ ...b, plates: print_pages })) };
 });
-// whole number of printing pages, or null when blank; rejects garbage
-function printPagesOf(v: unknown): number | null {
+// whole number of printing plates, or null when blank; rejects garbage
+function platesOf(v: unknown): number | null {
   if (v === undefined || v === null || v === '') return null;
   const n = Number(v);
-  if (!isFinite(n) || n < 0) throw new HttpError(400, 'จำนวนหน้าพิมพ์ไม่ถูกต้อง');
+  if (!isFinite(n) || n < 0) throw new HttpError(400, 'จำนวนเพลทไม่ถูกต้อง');
   return n > 0 ? Math.round(n) : null;
 }
 function validateBook(body: any) {
@@ -362,7 +364,7 @@ function validateBook(body: any) {
   return {
     title, code: String(body.code || '').trim() || null,
     pages: body.pages ? Number(body.pages) : null, color,
-    print_pages: printPagesOf(body.print_pages),
+    print_pages: platesOf(body.plates),
     default_qty: Math.max(1, Number(body.default_qty) || 1000),
     note: String(body.note || '').trim() || null,
   };
@@ -404,8 +406,8 @@ route('POST', '/orders', async (req) => {
       color: COLORS.includes(it.color) ? it.color : book.color,
       note: it.note || null, stage: 'cut', status: 'waiting', title: book.title,
       paper_id: paperId, paper_qty: paperQty,
-      // printing pages chosen for this run; falls back to the book's usual count
-      print_pages: it.print_pages === undefined ? (book.print_pages ?? null) : printPagesOf(it.print_pages),
+      // printing plates chosen for this run; falls back to the book's usual count
+      print_pages: it.plates === undefined ? (book.print_pages ?? null) : platesOf(it.plates),
     };
   });
   const order: any = must(await sb.from('pf_orders').insert({ created_by: me.id, note: body.note || null }).select('id').single());

@@ -43,21 +43,21 @@
   const statusName = { waiting: 'รอคิว', working: 'กำลังทำ', done: 'เสร็จแล้ว', cancelled: 'ยกเลิก' };
   const qtyFmt = (n) => Number(n || 0).toLocaleString('th-TH', { maximumFractionDigits: 2 });
 
-  // ---- printing pages (หน้าพิมพ์) vs ยก -------------------------------------
-  // Admin and press operators count in printing pages; after the press everyone works in ยก.
-  const pagesPerYok = () => S.meta?.pagesPerYok || 2;
-  const yokOf = (pages) => pages == null ? null : Math.round((Number(pages) / pagesPerYok()) * 10) / 10;
+  // ---- printing plates (เพลท) vs ยก -------------------------------------
+  // Admin and press operators count in printing plates; after the press everyone works in ยก.
+  const platesPerYok = () => S.meta?.platesPerYok || 2;
+  const yokOf = (pages) => pages == null ? null : Math.round((Number(pages) / platesPerYok()) * 10) / 10;
   const yokFmt = (n) => Number(n || 0).toLocaleString('th-TH', { maximumFractionDigits: 1 });
-  const seesPages = () => S.user && (S.user.role === 'admin' || S.user.role === 'printer');
+  const seesPlates = () => S.user && (S.user.role === 'admin' || S.user.role === 'printer');
   // true once the job has left the press (fold onwards, or done)
   const printed = (j) => j.status === 'done' || stageIndex(j.stage) > stageIndex('print');
   // badge(s) describing the job size in the unit this user should see
   function unitBadge(j) {
-    const yok = j.yok ?? yokOf(j.print_pages);
+    const yok = j.yok ?? yokOf(j.plates);
     if (yok == null) return '';
-    if (seesPages() && j.print_pages != null) {
-      if (!printed(j)) return `<span class="badge pages">${num(j.print_pages)} หน้าพิมพ์</span>`;
-      return `<span class="badge yok">${yokFmt(yok)} ยก</span><span class="badge pages">${num(j.print_pages)} หน้าพิมพ์</span>`;
+    if (seesPlates() && j.plates != null) {
+      if (!printed(j)) return `<span class="badge plates">${num(j.plates)} เพลท</span>`;
+      return `<span class="badge yok">${yokFmt(yok)} ยก</span><span class="badge plates">${num(j.plates)} เพลท</span>`;
     }
     return `<span class="badge yok">${yokFmt(yok)} ยก</span>`;
   }
@@ -551,7 +551,7 @@
             <div class="row between">
               <div>
                 <div class="title">${esc(b.title)}</div>
-                <div class="meta">${b.code ? `รหัส ${esc(b.code)} · ` : ''}${b.pages ? `${b.pages} หน้า · ` : ''}${b.print_pages ? `${num(b.print_pages)} หน้าพิมพ์ (${yokFmt(yokOf(b.print_pages))} ยก) · ` : ''}ปกติ ${num(b.default_qty)} เล่ม${b.note ? ` · ${esc(b.note)}` : ''}</div>
+                <div class="meta">${b.code ? `รหัส ${esc(b.code)} · ` : ''}${b.pages ? `${b.pages} หน้า · ` : ''}${b.plates ? `${num(b.plates)} เพลท (${yokFmt(yokOf(b.plates))} ยก) · ` : ''}ปกติ ${num(b.default_qty)} เล่ม${b.note ? ` · ${esc(b.note)}` : ''}</div>
               </div>
               <span class="badge color">${esc(b.color)}</span>
             </div>
@@ -569,7 +569,7 @@
       el.querySelectorAll('[data-edit]').forEach(b => b.onclick = () => bookForm(d.books.find(x => x.id === Number(b.dataset.edit))));
       el.querySelectorAll('[data-add]').forEach(b => b.onclick = () => {
         const book = d.books.find(x => x.id === Number(b.dataset.add));
-        S.basket.push({ book_id: book.id, title: book.title, quantity: book.default_qty, color: book.color, print_pages: book.print_pages ?? null, note: '' });
+        S.basket.push({ book_id: book.id, title: book.title, quantity: book.default_qty, color: book.color, plates: book.plates ?? null, note: '' });
         saveBasket();
         toast(`ใส่ "${book.title}" ลงตะกร้าแล้ว`, 'success');
         render();
@@ -592,9 +592,9 @@
             <select name="color">${colors.map(c => `<option ${book?.color === c ? 'selected' : ''}>${c}</option>`).join('')}</select></div>
           <div class="field"><label>จำนวนพิมพ์ปกติ (เล่ม)</label><input name="default_qty" type="number" inputmode="numeric" value="${esc(book?.default_qty ?? 1000)}"></div>
         </div>
-        <div class="field"><label>หน้าพิมพ์ปกติ (${pagesPerYok()} หน้าพิมพ์ = 1 ยก) — เปลี่ยนได้ตอนส่งงาน</label>
-          <input name="print_pages" id="bookPP" type="number" inputmode="numeric" min="0" placeholder="เช่น 16" value="${esc(book?.print_pages)}">
-          <div class="small muted" id="bookPPHint" style="margin-top:4px">${book?.print_pages ? `= ${yokFmt(yokOf(book.print_pages))} ยก` : ''}</div></div>
+        <div class="field"><label>จำนวนเพลทปกติ (${platesPerYok()} เพลท = 1 ยก) — เปลี่ยนได้ตอนส่งงาน</label>
+          <input name="plates" id="bookPP" type="number" inputmode="numeric" min="0" placeholder="เช่น 16" value="${esc(book?.plates)}">
+          <div class="small muted" id="bookPPHint" style="margin-top:4px">${book?.plates ? `= ${yokFmt(yokOf(book.plates))} ยก` : ''}</div></div>
         <div class="field"><label>หมายเหตุ</label><textarea name="note">${esc(book?.note)}</textarea></div>
         <div class="actions">
           ${book ? '<button type="button" class="btn danger" id="delBook">ลบ</button>' : ''}
@@ -640,9 +640,9 @@
               <select class="sel" data-color="${i}">${S.meta.colors.map(c => `<option ${it.color === c ? 'selected' : ''}>${c}</option>`).join('')}</select>
             </div>
             <div class="row" style="margin-top:8px">
-              <label class="small muted">หน้าพิมพ์</label>
-              <input class="qty" type="number" inputmode="numeric" min="0" placeholder="เช่น 16" data-pp="${i}" value="${esc(it.print_pages ?? '')}">
-              <span class="small muted">${it.print_pages > 0 ? `= <b>${yokFmt(yokOf(it.print_pages))} ยก</b> (ช่างหลังแท่นพิมพ์จะเห็นเป็นยก)` : `ไม่ระบุ · ${pagesPerYok()} หน้าพิมพ์ = 1 ยก`}</span>
+              <label class="small muted">เพลท</label>
+              <input class="qty" type="number" inputmode="numeric" min="0" placeholder="เช่น 16" data-pp="${i}" value="${esc(it.plates ?? '')}">
+              <span class="small muted">${it.plates > 0 ? `= <b>${yokFmt(yokOf(it.plates))} ยก</b> (ช่างหลังแท่นพิมพ์จะเห็นเป็นยก)` : `ไม่ระบุ · ${platesPerYok()} เพลท = 1 ยก`}</span>
             </div>
             <div class="row" style="margin-top:8px">
               <select class="sel grow" data-paper="${i}">${paperOpts(it.paper_id)}</select>
@@ -664,7 +664,7 @@
       el.querySelectorAll('[data-rm]').forEach(b => b.onclick = () => { S.basket.splice(Number(b.dataset.rm), 1); saveBasket(); render(); });
       el.querySelectorAll('[data-qty]').forEach(i => i.onchange = () => { S.basket[Number(i.dataset.qty)].quantity = Math.max(1, Number(i.value) || 1); saveBasket(); });
       el.querySelectorAll('[data-color]').forEach(s => s.onchange = () => { S.basket[Number(s.dataset.color)].color = s.value; saveBasket(); });
-      el.querySelectorAll('[data-pp]').forEach(i => i.onchange = () => { const n = Math.round(Number(i.value)); S.basket[Number(i.dataset.pp)].print_pages = n > 0 ? n : null; saveBasket(); render(true); });
+      el.querySelectorAll('[data-pp]').forEach(i => i.onchange = () => { const n = Math.round(Number(i.value)); S.basket[Number(i.dataset.pp)].plates = n > 0 ? n : null; saveBasket(); render(true); });
       el.querySelectorAll('[data-note]').forEach(i => i.onchange = () => { S.basket[Number(i.dataset.note)].note = i.value; saveBasket(); });
       el.querySelectorAll('[data-paper]').forEach(s2 => s2.onchange = () => { S.basket[Number(s2.dataset.paper)].paper_id = s2.value ? Number(s2.value) : null; saveBasket(); render(true); });
       el.querySelectorAll('[data-pqty]').forEach(i => i.onchange = () => { S.basket[Number(i.dataset.pqty)].paper_qty = i.value === '' ? null : Math.max(0, Number(i.value) || 0); saveBasket(); render(true); });
@@ -673,7 +673,7 @@
       });
       el.querySelector('#submitOrder')?.addEventListener('click', async () => {
         const papers = S.cache.papers || [];
-        const lines = S.basket.map(b => { const pp = (views.basket._papers || []).find(p => p.id === Number(b.paper_id)); return `• ${esc(b.title)} — ${num(b.quantity)} เล่ม (${esc(b.color)})${b.print_pages > 0 ? ` · ${num(b.print_pages)} หน้าพิมพ์ = ${yokFmt(yokOf(b.print_pages))} ยก` : ''}${pp ? `<br>&nbsp;&nbsp;📄 ${esc(pp.name)}${b.paper_qty ? ` × ${qtyFmt(b.paper_qty)} ${esc(pp.unit)}` : ''}` : ''}`; }).join('<br>');
+        const lines = S.basket.map(b => { const pp = (views.basket._papers || []).find(p => p.id === Number(b.paper_id)); return `• ${esc(b.title)} — ${num(b.quantity)} เล่ม (${esc(b.color)})${b.plates > 0 ? ` · ${num(b.plates)} เพลท = ${yokFmt(yokOf(b.plates))} ยก` : ''}${pp ? `<br>&nbsp;&nbsp;📄 ${esc(pp.name)}${b.paper_qty ? ` × ${qtyFmt(b.paper_qty)} ${esc(pp.unit)}` : ''}` : ''}`; }).join('<br>');
         if (!(await confirmSheet('ยืนยันส่งงาน', `${lines}<br><br>งานจะไปที่แผนก <b>ตัดกระดาษ</b> ก่อน และช่างจะได้รับการแจ้งเตือน`, 'ส่งงาน'))) return;
         try {
           const note = document.getElementById('orderNote')?.value || '';
