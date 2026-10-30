@@ -1,6 +1,6 @@
 // Service worker: receives push notifications and caches the app shell.
 // All paths are relative so the app works at a sub-path (e.g. GitHub Pages).
-const CACHE = 'print-flow-v11';
+const CACHE = 'print-flow-v12';
 const SHELL = ['./', './index.html', './config.js', './app.js', './styles.css', './manifest.webmanifest', './icon-192.png', './icon-512.png'];
 
 self.addEventListener('install', (event) => {

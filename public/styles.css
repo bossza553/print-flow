@@ -87,7 +87,7 @@ h1, h2, h3 { margin: 0; }
 .badge.color { background: #ede9fe; color: #6d28d9; }
 .badge.plates-badge { background: #ffedd5; color: #9a3412; font-size: 13px; }
 
-/* unit chips: เพลท (press side) / ยก (after the press) — meant to be read from across the room */
+/* unit chips: กรอบ (press side) / ยก (after the press) — meant to be read from across the room */
 .unit { display: inline-flex; align-items: baseline; gap: 5px; padding: 6px 12px; border-radius: 12px; font-weight: 700; font-size: 14px; white-space: nowrap; flex: 0 0 auto; line-height: 1; }
 .unit b { font-size: 26px; font-weight: 900; }
 .unit .eq { font-size: 12px; font-weight: 600; opacity: .75; margin-left: 2px; }

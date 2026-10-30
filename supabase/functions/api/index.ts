@@ -26,7 +26,7 @@ const MACHINES = [
 const stageByKey = (k: string) => STAGES.find(s => s.key === k);
 const nextStage = (k: string) => { const i = STAGES.findIndex(s => s.key === k); return i < 0 || i >= STAGES.length - 1 ? null : STAGES[i + 1]; };
 const machineColor = (m: string | null) => MACHINES.find(x => x.key === m)?.color || null;
-// Printing plates (เพลท) are counted by admin and the press operators; everyone after the
+// Printing plates (กรอบ) are counted by admin and the press operators; everyone after the
 // press works in ยก. PLATES_PER_YOK printing plates make one ยก.
 const PLATES_PER_YOK = 2;
 const yokOf = (pages: number | null | undefined) => pages == null ? null : Math.round((pages / PLATES_PER_YOK) * 10) / 10;
@@ -35,7 +35,7 @@ const seesPlates = (user: any) => user.role === 'admin' || user.role === 'printe
 // Unit text for a notification going to the people working on `stageKey`.
 function unitText(job: any, stageKey: string) {
   if (!job.plates) return '';
-  return stageKey === 'print' ? ` · ${Number(job.plates).toLocaleString('th-TH')} เพลท` : ` · ${yokFmt(yokOf(job.plates)!)} ยก`;
+  return stageKey === 'print' ? ` · ${Number(job.plates).toLocaleString('th-TH')} กรอบ` : ` · ${yokFmt(yokOf(job.plates)!)} ยก`;
 }
 function canWork(user: any, job: any) {
   if (user.role === 'admin') return true;
@@ -353,7 +353,7 @@ route('GET', '/books', async (req) => {
 function platesOf(v: unknown): number | null {
   if (v === undefined || v === null || v === '') return null;
   const n = Number(v);
-  if (!isFinite(n) || n < 0) throw new HttpError(400, 'จำนวนเพลทไม่ถูกต้อง');
+  if (!isFinite(n) || n < 0) throw new HttpError(400, 'จำนวนกรอบไม่ถูกต้อง');
   return n > 0 ? Math.round(n) : null;
 }
 function validateBook(body: any) {
@@ -624,7 +624,7 @@ route('GET', '/paper/:id/moves', async (req, p) => {
   return { moves: rows.map(({ user, job, ...m }) => ({ ...m, delta: Number(m.delta), qty_after: Number(m.qty_after), user_name: user?.name ?? null, job_title: job?.book?.title ?? null })) };
 });
 
-// --- plate stock (เพลท): one running balance, consumed when the press starts a job ------
+// --- plate stock (กรอบ): one running balance, consumed when the press starts a job ------
 async function plateStock() {
   const row: any = must(await sb.from('pf_plates').select('qty,min_qty,updated_at').eq('id', 1).maybeSingle());
   return row ? { qty: Number(row.qty), min_qty: Number(row.min_qty), updated_at: row.updated_at } : { qty: 0, min_qty: 0, updated_at: null };
@@ -638,7 +638,7 @@ async function plateMove(amount: number, type: 'in' | 'use' | 'adjust', userId: 
 async function plateLowCheck(qtyAfter: number) {
   const s = await plateStock();
   if (s.min_qty <= 0 || qtyAfter > s.min_qty) return;
-  notify(adminIds(), '🟧 เพลทใกล้หมด', `เหลือ ${thNum(qtyAfter)} เพลท (ขั้นต่ำ ${thNum(s.min_qty)})`, '#paper', { alarm: false, tag: 'plates-low' });
+  notify(adminIds(), '🟧 กรอบใกล้หมด', `เหลือ ${thNum(qtyAfter)} กรอบ (ขั้นต่ำ ${thNum(s.min_qty)})`, '#paper', { alarm: false, tag: 'plates-low' });
 }
 route('GET', '/plates', async (req) => {
   const me = await requireUser(req);

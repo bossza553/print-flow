@@ -44,7 +44,7 @@
   const EV_NAME = { created: 'ส่งงานเข้าสายการผลิต', start: 'เริ่มทำ', finish: 'ทำเสร็จ ส่งต่อ', cancel: 'ยกเลิกงาน' };
   const qtyFmt = (n) => Number(n || 0).toLocaleString('th-TH', { maximumFractionDigits: 2 });
 
-  // ---- printing plates (เพลท) vs ยก -------------------------------------
+  // ---- printing plates (กรอบ) vs ยก -------------------------------------
   // Admin and press operators count in printing plates; after the press everyone works in ยก.
   const platesPerYok = () => S.meta?.platesPerYok || 2;
   const yokOf = (pages) => pages == null ? null : Math.round((Number(pages) / platesPerYok()) * 10) / 10;
@@ -52,7 +52,7 @@
   const seesPlates = () => S.user && (S.user.role === 'admin' || S.user.role === 'printer');
   // true once the job has left the press (fold onwards, or done)
   const printed = (j) => j.status === 'done' || stageIndex(j.stage) > stageIndex('print');
-  // The big เพลท / ยก chip. Admin and the press see plates until the job leaves the press;
+  // The big กรอบ / ยก chip. Admin and the press see plates until the job leaves the press;
   // from พับ onward everyone, admin included, sees ยก only.
   function unitChip(j, big = false) {
     const yok = j.yok ?? yokOf(j.plates);
@@ -60,7 +60,7 @@
     const cls = `unit${big ? ' big' : ''}`;
     if (!printed(j) && seesPlates() && j.plates != null) {
       const eq = S.user.role === 'admin' ? `<span class="eq">= ${yokFmt(yok)} ยก</span>` : '';
-      return `<span class="${cls} plates"><b>${num(j.plates)}</b> เพลท${eq}</span>`;
+      return `<span class="${cls} plates"><b>${num(j.plates)}</b> กรอบ${eq}</span>`;
     }
     return `<span class="${cls} yok"><b>${yokFmt(yok)}</b> ยก</span>`;
   }
@@ -338,7 +338,7 @@
         <a class="card tap" href="#paper" style="display:block;text-decoration:none;color:inherit">
           <div class="row between"><div class="title" style="font-size:15px">📦 สต็อกคงเหลือ</div><span class="muted small">ดูทั้งหมด ›</span></div>
           <div class="row wrap" style="margin-top:6px;gap:6px">
-            ${d.plates ? `<span class="badge plates-badge">🟧 เพลท <b>${num(d.plates.qty)}</b>${d.plates.min_qty > 0 && d.plates.qty <= d.plates.min_qty ? ' ⚠️' : ''}</span>` : ''}
+            ${d.plates ? `<span class="badge plates-badge">🟧 กรอบ <b>${num(d.plates.qty)}</b>${d.plates.min_qty > 0 && d.plates.qty <= d.plates.min_qty ? ' ⚠️' : ''}</span>` : ''}
             ${d.papers.map(p => { const low = p.min_qty > 0 && p.qty <= p.min_qty; return `<span class="badge" style="${low ? 'background:var(--danger-soft);color:var(--danger)' : ''}">${esc(p.name)}: <b>${qtyFmt(p.qty)}</b> ${esc(p.unit)}${low ? ' ⚠️' : ''}</span>`; }).join('')}
           </div>
         </a>` : ''}
@@ -372,23 +372,23 @@
       const low = d.papers.filter(p => p.min_qty > 0 && p.qty <= p.min_qty);
       const pl = d.plates;
       const plLow = pl && pl.min_qty > 0 && pl.qty <= pl.min_qty;
-      return shell('สต็อก', `กระดาษ ${d.papers.length} ชนิด${low.length ? ` · ใกล้หมด ${low.length}` : ''}${pl ? ` · เพลท ${num(pl.qty)}` : ''}`, `
+      return shell('สต็อก', `กระดาษ ${d.papers.length} ชนิด${low.length ? ` · ใกล้หมด ${low.length}` : ''}${pl ? ` · กรอบ ${num(pl.qty)}` : ''}`, `
         ${pl ? `
-        <div class="section-title" style="margin-top:4px">เพลท</div>
+        <div class="section-title" style="margin-top:4px">กรอบ</div>
         <div class="card stock-plates">
           <div class="row between">
             <div class="grow">
-              <div class="title">🟧 เพลทคงเหลือ</div>
+              <div class="title">🟧 กรอบคงเหลือ</div>
               <div class="meta">${pl.min_qty > 0 ? `แจ้งเตือนเมื่อต่ำกว่า ${num(pl.min_qty)} · ` : ''}${pl.updated_at ? `อัปเดต ${ago(pl.updated_at)}` : 'ยังไม่เคยบันทึก'}</div>
             </div>
             <div style="text-align:right">
               <div class="stock-n" style="color:${plLow || pl.qty <= 0 ? 'var(--danger)' : '#c2410c'}">${num(pl.qty)}</div>
-              <div class="small muted">เพลท${plLow ? ' · <b style="color:var(--danger)">ใกล้หมด</b>' : ''}</div>
+              <div class="small muted">กรอบ${plLow ? ' · <b style="color:var(--danger)">ใกล้หมด</b>' : ''}</div>
             </div>
           </div>
-          <div class="small muted" style="margin-top:6px">หักออกอัตโนมัติตามจำนวนเพลทของงาน เมื่อช่างพิมพ์กด "เริ่มทำ"</div>
+          <div class="small muted" style="margin-top:6px">หักออกอัตโนมัติตามจำนวนกรอบของงาน เมื่อช่างพิมพ์กด "เริ่มทำ"</div>
           <div class="actions">
-            ${isAdmin ? '<button class="btn sm success" id="plateAdd">＋ รับเพลทเข้า</button><button class="btn sm secondary" id="plateAdjust">นับใหม่ / ตั้งค่า</button>' : ''}
+            ${isAdmin ? '<button class="btn sm success" id="plateAdd">＋ รับกรอบเข้า</button><button class="btn sm secondary" id="plateAdjust">นับใหม่ / ตั้งค่า</button>' : ''}
             <button class="btn sm ghost" id="plateHist">ประวัติ</button>
           </div>
         </div>
@@ -524,27 +524,27 @@
   // ---- plate stock sheets (admin)
   function plateAddSheet(pl) {
     openSheet(`
-      <h2>＋ รับเพลทเข้า</h2>
-      <p class="muted small">คงเหลือตอนนี้ <b>${num(pl.qty)} เพลท</b></p>
+      <h2>＋ รับกรอบเข้า</h2>
+      <p class="muted small">คงเหลือตอนนี้ <b>${num(pl.qty)} กรอบ</b></p>
       <form id="plAdd">
-        <div class="field"><label>จำนวนที่รับเข้า (เพลท) *</label><input name="amount" type="number" inputmode="numeric" min="1" required autofocus class="pin-input" style="letter-spacing:0"></div>
+        <div class="field"><label>จำนวนที่รับเข้า (กรอบ) *</label><input name="amount" type="number" inputmode="numeric" min="1" required autofocus class="pin-input" style="letter-spacing:0"></div>
         <div class="field"><label>หมายเหตุ (เช่น ใบส่งของ / ร้านที่ซื้อ)</label><input name="note"></div>
         <button class="btn big success" type="submit">บันทึกรับเข้า</button>
       </form>`, (el) => {
       el.querySelector('#plAdd').onsubmit = async (e) => {
         e.preventDefault();
         const fd = Object.fromEntries(new FormData(e.target));
-        try { const r = await api('POST', '/api/plates/add', fd); closeSheet(); toast(`รับเข้าแล้ว เหลือ ${num(r.qty_after)} เพลท`, 'success'); render(true); }
+        try { const r = await api('POST', '/api/plates/add', fd); closeSheet(); toast(`รับเข้าแล้ว เหลือ ${num(r.qty_after)} กรอบ`, 'success'); render(true); }
         catch (err) { toast(err.message, 'error'); }
       };
     });
   }
   function plateAdjustSheet(pl) {
     openSheet(`
-      <h2>นับเพลทใหม่ / ตั้งค่า</h2>
+      <h2>นับกรอบใหม่ / ตั้งค่า</h2>
       <form id="plAdj">
-        <div class="field"><label>จำนวนที่มีจริงตอนนี้ (เพลท) — เว้นว่างถ้าไม่เปลี่ยน</label><input name="qty" type="number" inputmode="numeric" min="0" placeholder="ปัจจุบัน ${num(pl.qty)}"></div>
-        <div class="field"><label>แจ้งเตือนผู้ดูแลเมื่อเหลือไม่ถึง (เพลท)</label><input name="min_qty" type="number" inputmode="numeric" min="0" value="${esc(pl.min_qty ?? 0)}"></div>
+        <div class="field"><label>จำนวนที่มีจริงตอนนี้ (กรอบ) — เว้นว่างถ้าไม่เปลี่ยน</label><input name="qty" type="number" inputmode="numeric" min="0" placeholder="ปัจจุบัน ${num(pl.qty)}"></div>
+        <div class="field"><label>แจ้งเตือนผู้ดูแลเมื่อเหลือไม่ถึง (กรอบ)</label><input name="min_qty" type="number" inputmode="numeric" min="0" value="${esc(pl.min_qty ?? 0)}"></div>
         <div class="field"><label>หมายเหตุ</label><input name="note" placeholder="เช่น นับสต็อกสิ้นเดือน"></div>
         <button class="btn big" type="submit">บันทึก</button>
       </form>`, (el) => {
@@ -559,10 +559,10 @@
   function plateHistory(pl) {
     const typeName = { in: '📥 รับเข้า', use: '🖨️ ใช้กับงาน', adjust: '📝 นับสต็อก' };
     openSheet(`
-      <h2>ประวัติเพลท</h2>
-      <p class="muted small">คงเหลือ ${num(pl.qty)} เพลท · แสดง ${pl.moves.length} รายการล่าสุด</p>
+      <h2>ประวัติกรอบ</h2>
+      <p class="muted small">คงเหลือ ${num(pl.qty)} กรอบ · แสดง ${pl.moves.length} รายการล่าสุด</p>
       <ul class="timeline">
-        ${pl.moves.map(m => `<li><b>${typeName[m.type] || m.type}</b> ${m.delta > 0 ? '+' : ''}${num(m.delta)} เพลท → เหลือ ${num(m.qty_after)}
+        ${pl.moves.map(m => `<li><b>${typeName[m.type] || m.type}</b> ${m.delta > 0 ? '+' : ''}${num(m.delta)} กรอบ → เหลือ ${num(m.qty_after)}
           ${m.job_title ? `<div class="small">งาน #${m.job_id} ${esc(m.job_title)}</div>` : ''}${m.note ? `<div class="small">📝 ${esc(m.note)}</div>` : ''}
           <div class="when">${esc(m.user_name || '')} · ${fmtTime(m.created_at)}</div></li>`).join('') || '<li class="muted">ยังไม่มีรายการ</li>'}
       </ul>`);
@@ -583,13 +583,13 @@
         const t = parseDate(it.at)?.toLocaleTimeString('th-TH', { hour: '2-digit', minute: '2-digit' }) || '';
         if (it.kind === 'job') {
           const ic = { created: '🧺', start: '▶️', finish: '✅', cancel: '🚫' }[it.type] || '•';
-          const unit = it.plates ? (stageIndex(it.stage) <= stageIndex('print') ? ` · <b>${num(it.plates)} เพลท</b>` : ` · <b>${yokFmt(it.yok)} ยก</b>`) : '';
+          const unit = it.plates ? (stageIndex(it.stage) <= stageIndex('print') ? ` · <b>${num(it.plates)} กรอบ</b>` : ` · <b>${yokFmt(it.yok)} ยก</b>`) : '';
           return `<li data-job="${it.job_id}" class="tap"><span class="t">${t}</span> ${ic} <b>${EV_NAME[it.type] || it.type}</b> · ${esc(stageName(it.stage))}${it.machine ? ` (เครื่อง ${esc(it.machine)})` : ''}
             <div>${esc(it.book_title || '')} · ${num(it.quantity)} เล่ม (${esc(it.color)})${unit}</div>
             ${it.note ? `<div class="small">📝 ${esc(it.note)}</div>` : ''}<div class="when">${esc(it.user_name || '')} · งาน #${it.job_id}</div></li>`;
         }
         if (it.kind === 'paper') return `<li><span class="t">${t}</span> 📄 <b>กระดาษ ${typeName[it.type] || it.type}</b> · ${esc(it.paper_name)} ${it.delta > 0 ? '+' : ''}${qtyFmt(it.delta)} ${esc(it.unit)} → เหลือ ${qtyFmt(it.qty_after)}${it.note ? `<div class="small">📝 ${esc(it.note)}</div>` : ''}<div class="when">${esc(it.user_name || '')}${it.job_id ? ` · งาน #${it.job_id}` : ''}</div></li>`;
-        return `<li><span class="t">${t}</span> 🟧 <b>เพลท ${typeName[it.type] || it.type}</b> ${it.delta > 0 ? '+' : ''}${num(it.delta)} → เหลือ ${num(it.qty_after)}${it.note ? `<div class="small">📝 ${esc(it.note)}</div>` : ''}<div class="when">${esc(it.user_name || '')}${it.job_id ? ` · งาน #${it.job_id}` : ''}</div></li>`;
+        return `<li><span class="t">${t}</span> 🟧 <b>กรอบ ${typeName[it.type] || it.type}</b> ${it.delta > 0 ? '+' : ''}${num(it.delta)} → เหลือ ${num(it.qty_after)}${it.note ? `<div class="small">📝 ${esc(it.note)}</div>` : ''}<div class="when">${esc(it.user_name || '')}${it.job_id ? ` · งาน #${it.job_id}` : ''}</div></li>`;
       };
       return shell('บันทึกประจำวัน', thDate(d.date), `
         <div class="row" style="margin-bottom:10px">
@@ -602,7 +602,7 @@
           <div class="tile"><div class="n">${s.created}</div><div class="l">ส่งงานเข้า</div></div>
           <div class="tile"><div class="n">${s.printed}</div><div class="l">พิมพ์เสร็จ</div></div>
           <div class="tile"><div class="n" style="color:var(--success)">${s.done}</div><div class="l">เข้าคลัง · ${num(s.doneBooks)} เล่ม</div></div>
-          <div class="tile"><div class="n" style="color:#c2410c">${num(s.platesUsed)}</div><div class="l">เพลทที่ใช้</div></div>
+          <div class="tile"><div class="n" style="color:#c2410c">${num(s.platesUsed)}</div><div class="l">กรอบที่ใช้</div></div>
           <div class="tile"><div class="n">${s.byStage.cut || 0}</div><div class="l">ตัดกระดาษเสร็จ</div></div>
           <div class="tile"><div class="n">${(s.byStage.fold || 0) + (s.byStage.bind || 0)}</div><div class="l">พับ + เก็บเล่มเสร็จ</div></div>
         </div>
@@ -687,7 +687,7 @@
             <div class="row between">
               <div>
                 <div class="title">${esc(b.title)}</div>
-                <div class="meta">${b.code ? `รหัส ${esc(b.code)} · ` : ''}${b.pages ? `${b.pages} หน้า · ` : ''}${b.plates ? `${num(b.plates)} เพลท (${yokFmt(yokOf(b.plates))} ยก) · ` : ''}ปกติ ${num(b.default_qty)} เล่ม${b.note ? ` · ${esc(b.note)}` : ''}</div>
+                <div class="meta">${b.code ? `รหัส ${esc(b.code)} · ` : ''}${b.pages ? `${b.pages} หน้า · ` : ''}${b.plates ? `${num(b.plates)} กรอบ (${yokFmt(yokOf(b.plates))} ยก) · ` : ''}ปกติ ${num(b.default_qty)} เล่ม${b.note ? ` · ${esc(b.note)}` : ''}</div>
               </div>
               <span class="badge color">${esc(b.color)}</span>
             </div>
@@ -728,7 +728,7 @@
             <select name="color">${colors.map(c => `<option ${book?.color === c ? 'selected' : ''}>${c}</option>`).join('')}</select></div>
           <div class="field"><label>จำนวนพิมพ์ปกติ (เล่ม)</label><input name="default_qty" type="number" inputmode="numeric" value="${esc(book?.default_qty ?? 1000)}"></div>
         </div>
-        <div class="field"><label>จำนวนเพลทปกติ (${platesPerYok()} เพลท = 1 ยก) — เปลี่ยนได้ตอนส่งงาน</label>
+        <div class="field"><label>จำนวนกรอบปกติ (${platesPerYok()} กรอบ = 1 ยก) — เปลี่ยนได้ตอนส่งงาน</label>
           <input name="plates" id="bookPP" type="number" inputmode="numeric" min="0" placeholder="เช่น 16" value="${esc(book?.plates)}">
           <div class="small muted" id="bookPPHint" style="margin-top:4px">${book?.plates ? `= ${yokFmt(yokOf(book.plates))} ยก` : ''}</div></div>
         <div class="field"><label>หมายเหตุ</label><textarea name="note">${esc(book?.note)}</textarea></div>
@@ -766,7 +766,7 @@
       const total = S.basket.reduce((a, b) => a + Number(b.quantity || 0), 0);
       const totalPlates = S.basket.reduce((a, b) => a + (Number(b.plates) || 0), 0);
       const pl = d?.plates;
-      return shell('ตะกร้างานพิมพ์', `${S.basket.length} รายการ · ${num(total)} เล่ม${totalPlates ? ` · ${num(totalPlates)} เพลท` : ''}`, `
+      return shell('ตะกร้างานพิมพ์', `${S.basket.length} รายการ · ${num(total)} เล่ม${totalPlates ? ` · ${num(totalPlates)} กรอบ` : ''}`, `
         ${S.basket.length === 0 ? '<div class="empty">ตะกร้าว่าง<br><a href="#books">ไปเลือกหนังสือ</a></div>' : ''}
         ${S.basket.map((it, i) => `
           <div class="card">
@@ -781,9 +781,9 @@
               <select class="sel" data-color="${i}">${S.meta.colors.map(c => `<option ${it.color === c ? 'selected' : ''}>${c}</option>`).join('')}</select>
             </div>
             <div class="row" style="margin-top:8px">
-              <label class="small muted">เพลท</label>
+              <label class="small muted">กรอบ</label>
               <input class="qty" type="number" inputmode="numeric" min="0" placeholder="เช่น 16" data-pp="${i}" value="${esc(it.plates ?? '')}">
-              <span class="small muted">${it.plates > 0 ? `= <b>${yokFmt(yokOf(it.plates))} ยก</b> (ช่างหลังแท่นพิมพ์จะเห็นเป็นยก)` : `ไม่ระบุ · ${platesPerYok()} เพลท = 1 ยก`}</span>
+              <span class="small muted">${it.plates > 0 ? `= <b>${yokFmt(yokOf(it.plates))} ยก</b> (ช่างหลังแท่นพิมพ์จะเห็นเป็นยก)` : `ไม่ระบุ · ${platesPerYok()} กรอบ = 1 ยก`}</span>
             </div>
             <div class="row" style="margin-top:8px">
               <select class="sel grow" data-paper="${i}">${paperOpts(it.paper_id)}</select>
@@ -794,8 +794,8 @@
             <input class="note-line" placeholder="หมายเหตุถึงช่าง (ถ้ามี)" data-note="${i}" value="${esc(it.note)}">
           </div>`).join('')}
         ${S.basket.length && pl && totalPlates ? (totalPlates > pl.qty
-          ? `<div class="card" style="background:var(--danger-soft);color:var(--danger)">⚠️ งานในตะกร้าต้องใช้ <b>${num(totalPlates)} เพลท</b> แต่สต็อกเหลือ <b>${num(pl.qty)}</b> — ส่งงานได้ แต่ควรรับเพลทเข้าก่อนถึงคิวพิมพ์</div>`
-          : `<div class="small muted" style="margin:4px 0 8px">🟧 ใช้ ${num(totalPlates)} เพลท จากสต็อก ${num(pl.qty)} (จะเหลือ ${num(pl.qty - totalPlates)})</div>`) : ''}
+          ? `<div class="card" style="background:var(--danger-soft);color:var(--danger)">⚠️ งานในตะกร้าต้องใช้ <b>${num(totalPlates)} กรอบ</b> แต่สต็อกเหลือ <b>${num(pl.qty)}</b> — ส่งงานได้ แต่ควรรับกรอบเข้าก่อนถึงคิวพิมพ์</div>`
+          : `<div class="small muted" style="margin:4px 0 8px">🟧 ใช้ ${num(totalPlates)} กรอบ จากสต็อก ${num(pl.qty)} (จะเหลือ ${num(pl.qty - totalPlates)})</div>`) : ''}
         ${S.basket.length ? `
           <div class="field" style="margin-top:14px"><label>หมายเหตุรวมของออเดอร์นี้</label><input id="orderNote" placeholder="เช่น ด่วน ส่งลูกค้าศุกร์นี้"></div>
           <button class="btn big success" id="submitOrder">🚀 ส่งงานเข้าสายการผลิต</button>
@@ -817,7 +817,7 @@
       });
       el.querySelector('#submitOrder')?.addEventListener('click', async () => {
         const papers = S.cache.papers || [];
-        const lines = S.basket.map(b => { const pp = (views.basket._papers || []).find(p => p.id === Number(b.paper_id)); return `• ${esc(b.title)} — ${num(b.quantity)} เล่ม (${esc(b.color)})${b.plates > 0 ? ` · ${num(b.plates)} เพลท = ${yokFmt(yokOf(b.plates))} ยก` : ''}${pp ? `<br>&nbsp;&nbsp;📄 ${esc(pp.name)}${b.paper_qty ? ` × ${qtyFmt(b.paper_qty)} ${esc(pp.unit)}` : ''}` : ''}`; }).join('<br>');
+        const lines = S.basket.map(b => { const pp = (views.basket._papers || []).find(p => p.id === Number(b.paper_id)); return `• ${esc(b.title)} — ${num(b.quantity)} เล่ม (${esc(b.color)})${b.plates > 0 ? ` · ${num(b.plates)} กรอบ = ${yokFmt(yokOf(b.plates))} ยก` : ''}${pp ? `<br>&nbsp;&nbsp;📄 ${esc(pp.name)}${b.paper_qty ? ` × ${qtyFmt(b.paper_qty)} ${esc(pp.unit)}` : ''}` : ''}`; }).join('<br>');
         if (!(await confirmSheet('ยืนยันส่งงาน', `${lines}<br><br>งานจะไปที่แผนก <b>ตัดกระดาษ</b> ก่อน และช่างจะได้รับการแจ้งเตือน`, 'ส่งงาน'))) return;
         try {
           const note = document.getElementById('orderNote')?.value || '';
